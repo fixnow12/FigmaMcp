@@ -1,0 +1,21 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "plugins/figma-local-bridge/skills/figma-local/SKILL.md"
+  ],
+  "mcp": {
+    "figma-local": {
+      "type": "local",
+      "command": [
+        "node",
+        "plugins/figma-local-bridge/src/server.mjs"
+      ],
+      "cwd": ".",
+      "enabled": true,
+      "environment": {
+        "FIGMA_WS_HOST": "127.0.0.1"
+      },
+      "timeout": 30000
+    }
+  }
+}

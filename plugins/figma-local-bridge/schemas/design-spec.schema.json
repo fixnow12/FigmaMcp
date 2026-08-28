@@ -1,0 +1,593 @@
+{
+  "$ref": "#/definitions/CodexFigmaDesignSpec",
+  "definitions": {
+    "CodexFigmaDesignSpec": {
+      "type": "object",
+      "properties": {
+        "$schema": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "type": {
+          "type": "string",
+          "const": "screen"
+        },
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "background": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "cornerRadius": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 180
+            }
+          ]
+        },
+        "layout": {
+          "type": "object",
+          "properties": {
+            "direction": {
+              "type": "string",
+              "enum": [
+                "horizontal",
+                "vertical",
+                "none"
+              ]
+            },
+            "gap": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 180
+                }
+              ]
+            },
+            "padding": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 180
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "top": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 180
+                        }
+                      ]
+                    },
+                    "right": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 180
+                        }
+                      ]
+                    },
+                    "bottom": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 180
+                        }
+                      ]
+                    },
+                    "left": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 180
+                        }
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "primaryAlign": {
+              "type": "string",
+              "enum": [
+                "start",
+                "center",
+                "end",
+                "space-between"
+              ]
+            },
+            "counterAlign": {
+              "type": "string",
+              "enum": [
+                "start",
+                "center",
+                "end",
+                "baseline"
+              ]
+            },
+            "wrap": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "tokens": {
+          "type": "object",
+          "properties": {
+            "colors": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "value"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "numbers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "value": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "name",
+                  "value"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "frame",
+                  "component",
+                  "componentSet",
+                  "text",
+                  "rectangle",
+                  "ellipse",
+                  "image",
+                  "svg"
+                ]
+              },
+              "key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "parentKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "order": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 240
+              },
+              "width": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 180
+                  }
+                ]
+              },
+              "height": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 180
+                  }
+                ]
+              },
+              "opacity": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 180
+                  }
+                ]
+              },
+              "visible": {
+                "type": "boolean"
+              },
+              "background": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "fill": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "stroke": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "strokeWidth": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 180
+                  }
+                ]
+              },
+              "cornerRadius": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 180
+                  }
+                ]
+              },
+              "clipContent": {
+                "type": "boolean"
+              },
+              "layout": {
+                "type": "object",
+                "properties": {
+                  "direction": {
+                    "type": "string",
+                    "enum": [
+                      "horizontal",
+                      "vertical",
+                      "none"
+                    ]
+                  },
+                  "gap": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 180
+                      }
+                    ]
+                  },
+                  "padding": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 180
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "top": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 180
+                              }
+                            ]
+                          },
+                          "right": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 180
+                              }
+                            ]
+                          },
+                          "bottom": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 180
+                              }
+                            ]
+                          },
+                          "left": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 180
+                              }
+                            ]
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "primaryAlign": {
+                    "type": "string",
+                    "enum": [
+                      "start",
+                      "center",
+                      "end",
+                      "space-between"
+                    ]
+                  },
+                  "counterAlign": {
+                    "type": "string",
+                    "enum": [
+                      "start",
+                      "center",
+                      "end",
+                      "baseline"
+                    ]
+                  },
+                  "wrap": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "content": {
+                "type": "string"
+              },
+              "fontFamily": {
+                "type": "string",
+                "minLength": 1
+              },
+              "fontWeight": {
+                "type": "string",
+                "minLength": 1
+              },
+              "fontSize": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 180
+                  }
+                ]
+              },
+              "lineHeight": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 180
+                  }
+                ]
+              },
+              "letterSpacing": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 180
+                  }
+                ]
+              },
+              "color": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "textAlign": {
+                "type": "string",
+                "enum": [
+                  "left",
+                  "center",
+                  "right",
+                  "justified"
+                ]
+              },
+              "data": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 30000000
+              },
+              "mimeType": {
+                "type": "string",
+                "enum": [
+                  "image/png",
+                  "image/jpeg"
+                ]
+              },
+              "scaleMode": {
+                "type": "string",
+                "enum": [
+                  "fill",
+                  "fit",
+                  "crop",
+                  "tile"
+                ]
+              },
+              "svg": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000000
+              },
+              "variant": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "property": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "property",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "type",
+              "key",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 2000
+        }
+      },
+      "required": [
+        "key",
+        "name",
+        "type",
+        "width",
+        "height",
+        "nodes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://local.invalid/codex-figma-design-spec.schema.json",
+  "title": "Codex Figma design spec",
+  "description": "Плоская типизированная спека экрана для render_screen. Семантические проверки parentKey, циклов и токенов выполняются MCP-сервером."
+}

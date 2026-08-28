@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: plugins/figma-local-bridge/package-lock.json
+      - name: Install and test
+        working-directory: plugins/figma-local-bridge
+        run: |
+          npm ci --ignore-scripts
+          npm test
+          npm run verify
+      - name: Validate repository
+        run: node scripts/validate-repo.mjs
+      - name: Build archive and checksum
+        shell: bash
+        run: |
+          mkdir -p dist
+          git archive --format=zip --output="dist/FigmaMcp-${GITHUB_REF_NAME}.zip" HEAD
+          cd dist
+          sha256sum "FigmaMcp-${GITHUB_REF_NAME}.zip" > "FigmaMcp-${GITHUB_REF_NAME}.zip.sha256"
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --verify-tag

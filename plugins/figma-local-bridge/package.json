@@ -1,0 +1,31 @@
+{
+  "name": "figma-local-bridge",
+  "version": "0.2.2",
+  "description": "Typed local MCP bridge for reading and editing Figma Desktop files",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fixnow12/FigmaMcp.git",
+    "directory": "plugins/figma-local-bridge"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "verify": "node scripts/verify-install.mjs",
+    "smoke": "node scripts/smoke-test.mjs",
+    "smoke:compact": "node scripts/compact-smoke-test.mjs",
+    "smoke:advanced": "node scripts/advanced-smoke-test.mjs",
+    "schema:export": "node scripts/export-schema.mjs",
+    "test": "node --test tests/schemas.test.mjs tests/figma-code.test.mjs tests/bridge.test.mjs tests/tool-schema.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "ws": "8.21.3",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "zod-to-json-schema": "3.25.2"
+  }
+}

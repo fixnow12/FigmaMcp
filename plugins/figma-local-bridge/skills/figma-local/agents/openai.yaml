@@ -1,0 +1,4 @@
+interface:
+  display_name: "Figma Local"
+  short_description: "Локальное чтение и редактирование Figma Desktop"
+  default_prompt: "Используй figma-local: сначала проверь выделение, внеси минимальную правку и подтверди результат скриншотом."

@@ -1,0 +1,14 @@
+node_modules/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+coverage/
+dist/
+migration-backup/
+*.local.json
+*.token
+*.pem
+*.key

@@ -1,0 +1,22 @@
+{
+  "name": "figma-local-bridge",
+  "version": "0.2.2",
+  "description": "Local typed MCP bridge for reading and editing Figma Desktop files.",
+  "author": {
+    "name": "fixnow12"
+  },
+  "repository": "https://github.com/fixnow12/FigmaMcp",
+  "homepage": "https://github.com/fixnow12/FigmaMcp",
+  "license": "MIT",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Figma Local Bridge",
+    "shortDescription": "Редактирование Figma Desktop через локальный MCP.",
+    "longDescription": "Подключает типизированный локальный MCP и навык безопасной работы с Figma Desktop без браузерной автоматизации.",
+    "developerName": "fixnow12",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Измени выделенный макет в Figma через figma-local и проверь результат по скриншоту."
+  }
+}

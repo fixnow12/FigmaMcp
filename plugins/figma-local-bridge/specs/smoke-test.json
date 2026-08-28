@@ -1,0 +1,85 @@
+{
+  "$schema": "../schemas/design-spec.schema.json",
+  "key": "codex-figma-smoke-test",
+  "name": "Codex Figma Smoke Test",
+  "type": "screen",
+  "width": 1200,
+  "height": 760,
+  "background": "#F5F7FA",
+  "layout": {
+    "direction": "horizontal",
+    "gap": 0,
+    "padding": 0
+  },
+  "nodes": [
+    {
+      "key": "sidebar",
+      "name": "Sidebar",
+      "type": "frame",
+      "width": 240,
+      "height": "fill",
+      "background": "#111827",
+      "layout": { "direction": "vertical", "gap": 16, "padding": 24 }
+    },
+    {
+      "key": "sidebar-title",
+      "parentKey": "sidebar",
+      "name": "Sidebar Title",
+      "type": "text",
+      "content": "Local Figma Bridge",
+      "fontSize": 20,
+      "fontWeight": "Semi Bold",
+      "color": "#FFFFFF"
+    },
+    {
+      "key": "content",
+      "name": "Content",
+      "type": "frame",
+      "width": "fill",
+      "height": "fill",
+      "background": "#F5F7FA",
+      "layout": { "direction": "vertical", "gap": 24, "padding": 40 }
+    },
+    {
+      "key": "page-title",
+      "parentKey": "content",
+      "name": "Page Title",
+      "type": "text",
+      "content": "Bridge connected",
+      "fontSize": 32,
+      "fontWeight": "Semi Bold",
+      "color": "#111827"
+    },
+    {
+      "key": "status-card",
+      "parentKey": "content",
+      "name": "Status Card",
+      "type": "frame",
+      "width": "fill",
+      "height": 160,
+      "background": "#FFFFFF",
+      "cornerRadius": 16,
+      "layout": { "direction": "vertical", "gap": 8, "padding": 24 }
+    },
+    {
+      "key": "status-title",
+      "parentKey": "status-card",
+      "name": "Status Title",
+      "type": "text",
+      "content": "Write path is working",
+      "fontSize": 20,
+      "fontWeight": "Semi Bold",
+      "color": "#111827"
+    },
+    {
+      "key": "status-copy",
+      "parentKey": "status-card",
+      "name": "Status Copy",
+      "type": "text",
+      "content": "Created through a local MCP and Figma Plugin API.",
+      "fontSize": 14,
+      "fontWeight": "Regular",
+      "color": "#4B5563"
+    }
+  ]
+}

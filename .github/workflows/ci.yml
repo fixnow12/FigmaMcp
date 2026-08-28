@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+        node: [20, 22]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: plugins/figma-local-bridge/package-lock.json
+      - name: Install dependencies
+        working-directory: plugins/figma-local-bridge
+        run: npm ci --ignore-scripts
+      - name: Unit tests
+        working-directory: plugins/figma-local-bridge
+        run: npm test
+      - name: MCP contract
+        working-directory: plugins/figma-local-bridge
+        run: npm run verify
+      - name: Repository validation
+        run: node scripts/validate-repo.mjs
+      - name: Dependency audit
+        working-directory: plugins/figma-local-bridge
+        run: npm audit --audit-level=high
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2

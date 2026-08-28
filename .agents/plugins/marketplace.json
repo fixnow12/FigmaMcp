@@ -1,0 +1,20 @@
+{
+  "name": "figma-mcp",
+  "interface": {
+    "displayName": "Figma MCP"
+  },
+  "plugins": [
+    {
+      "name": "figma-local-bridge",
+      "source": {
+        "source": "local",
+        "path": "./plugins/figma-local-bridge"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
