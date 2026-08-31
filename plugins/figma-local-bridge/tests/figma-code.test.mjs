@@ -55,7 +55,9 @@ test("render_screen компилирует изображения, SVG и compon
 
 test("компиляторы остальных инструментов создают исполняемый код", () => {
   assert.match(buildPatchCode({ patches: [{ key: "title", set: { content: "Новый" } }], ignoreMissing: false }), /patched/);
+  assert.match(buildPatchCode({ patches: [{ id: "1:2", set: { background: "#FF0000" } }], ignoreMissing: false }), /getNodeByIdAsync/);
   assert.match(buildInspectCode({ depth: 2, maxNodes: 50 }), /selection/);
+  assert.match(buildInspectCode({ nodeId: "1:2", depth: 2, maxNodes: 50 }), /getNodeByIdAsync/);
   assert.match(buildUseComponentCode({ sourceKey: "button", key: "instance" }), /createInstance/);
   assert.match(buildUseComponentCode({ sourceKey: "button", key: "instance", variant: { State: "Pressed" } }), /COMPONENT_SET/);
 });

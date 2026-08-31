@@ -48,6 +48,14 @@ test("MCP публикует типизированные схемы без unkn
     assert.equal(useComponent.inputSchema.properties.sourceKey.type, "string");
     assert.equal(useComponent.inputSchema.properties.libraryKey.type, "string");
     assert.equal(useComponent.inputSchema.properties.variant.type, "object");
+
+    const patchNodes = tools.find((tool) => tool.name === "patch_nodes");
+    const patchProperties = patchNodes.inputSchema.properties.patches.items.properties;
+    assert.equal(patchProperties.key.type, "string");
+    assert.equal(patchProperties.id.type, "string");
+
+    const inspectSelection = tools.find((tool) => tool.name === "inspect_selection");
+    assert.equal(inspectSelection.inputSchema.properties.nodeId.type, "string");
   } finally {
     await client.close();
   }
