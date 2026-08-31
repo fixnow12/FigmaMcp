@@ -25,11 +25,11 @@ Figma Canvas
 Сервер публикует ровно четыре инструмента:
 
 - `inspect_selection` — компактно читает выделение и при необходимости возвращает PNG;
-- `patch_nodes` — пакетно меняет существующие узлы по стабильным ключам;
+- `patch_nodes` — пакетно меняет существующие узлы по стабильным ключам или Figma ID;
 - `render_screen` — создаёт экран из типизированной JSON-спецификации;
 - `use_component` — вставляет экземпляр локального или библиотечного компонента.
 
-Произвольный JavaScript наружу не выставлен. Каждый создаваемый узел получает стабильный `key`, поэтому точечные итерации не зависят от временных Figma node ID.
+Произвольный JavaScript наружу не выставлен. Созданные мостом узлы получают стабильный `key`, а элементы в обычных существующих макетах можно адресовать по их Figma ID.
 
 ## Требования
 
@@ -70,7 +70,7 @@ chmod +x scripts/install.sh scripts/start-opencode.sh
 4. Откройте целевой Figma-файл.
 5. Запустите **Plugins → Development → Figma Desktop Bridge** и оставьте окно плагина открытым.
 
-Статус плагина должен стать `READY`. Сервер слушает только IPv4 loopback `127.0.0.1`; не публикуйте порты `9223–9232` во внешнюю сеть.
+Пока OpenCode или Codex не запущен, плагин может показывать `Looking for your AI app…`. После подключения MCP-сервера статус меняется на `Connected — AI can work in this file`. Сервер слушает только IPv4 loopback `127.0.0.1`; не публикуйте порты `9223–9232` во внешнюю сеть.
 
 ## Codex
 
@@ -85,7 +85,79 @@ codex plugin add figma-local-bridge@figma-mcp
 
 ## OpenCode
 
-Запускайте OpenCode из корня репозитория:
+### OpenCode Desktop: установка от начала до конца
+
+OpenCode Desktop не требует отдельной установки MCP-плагина. Он автоматически читает файл `opencode.json`, когда репозиторий открыт как проект.
+
+#### 1. Установите необходимые приложения
+
+- [Node.js](https://nodejs.org/) версии 20 или новее;
+- Figma Desktop;
+- OpenCode Desktop.
+
+#### 2. Скачайте и подготовьте репозиторий
+
+На macOS откройте Terminal и выполните:
+
+```bash
+git clone https://github.com/fixnow12/FigmaMcp.git
+cd FigmaMcp
+chmod +x scripts/install.sh scripts/start-opencode.sh
+./scripts/install.sh
+```
+
+На Windows откройте PowerShell и выполните:
+
+```powershell
+git clone https://github.com/fixnow12/FigmaMcp.git
+cd FigmaMcp
+powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
+```
+
+Если репозиторий уже скачан, повторно клонировать его не нужно: перейдите в его папку и запустите установщик.
+
+#### 3. Один раз добавьте Bridge в Figma
+
+1. Откройте Figma Desktop.
+2. Выберите **Plugins → Development → Import plugin from manifest…**.
+3. Выберите файл `plugins/figma-local-bridge/figma-plugin/manifest.json` внутри репозитория.
+
+#### 4. Подготовьте нужный Figma-файл
+
+1. Откройте нужный макет в Figma Desktop.
+2. Запустите **Plugins → Development → Figma Desktop Bridge**.
+3. Оставьте окно Bridge открытым. До запуска OpenCode оно может показывать `Looking for your AI app…` — это нормально.
+
+#### 5. Откройте проект в OpenCode Desktop
+
+1. Запустите OpenCode Desktop.
+2. Выберите открытие папки или проекта.
+3. Укажите корневую папку репозитория `FigmaMcp`, в которой лежит `opencode.json`. Не открывайте отдельно подпапку `plugins/figma-local-bridge`.
+4. Создайте новый чат. OpenCode прочитает `opencode.json` и сам запустит локальный MCP-сервер `figma-local`.
+
+После подключения в окне Figma Desktop Bridge появится статус `Connected — AI can work in this file`.
+
+#### 6. Отправьте первую команду
+
+Например:
+
+> Проверь выделение в Figma через figma-local, измени цвет выделенной кнопки на красный и подтверди результат скриншотом.
+
+Сначала выделите нужный элемент в Figma. Если открыто несколько Figma-файлов, укажите ссылку на нужный файл или узел.
+
+#### 7. Если Bridge не подключается
+
+Проверьте три вещи:
+
+1. В OpenCode Desktop открыта именно корневая папка `FigmaMcp` с файлом `opencode.json`.
+2. В Figma открыт нужный файл и запущен **Figma Desktop Bridge**.
+3. Установлен Node.js 20 или новее.
+
+После проверки нажмите **Try again** в Bridge или переоткройте проект в OpenCode Desktop.
+
+### OpenCode в терминале
+
+Если вместо Desktop-приложения используется терминальная версия, запускайте OpenCode из корня репозитория:
 
 ```powershell
 .\START_OPENCODE.cmd
