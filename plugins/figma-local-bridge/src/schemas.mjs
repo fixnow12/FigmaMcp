@@ -456,7 +456,16 @@ const patchSetSchema = z
 
 export const patchNodesInputSchema = {
   patches: z
-    .array(z.object({ key: keySchema, set: patchSetSchema }).strict())
+    .array(
+      z
+        .object({
+          key: keySchema.optional(),
+          id: z.string().min(1).max(160).optional(),
+          set: patchSetSchema,
+        })
+        .strict()
+        .refine((value) => Boolean(value.key) !== Boolean(value.id), "Укажите ровно один target: key или id"),
+    )
     .min(1)
     .max(200),
   ignoreMissing: z.boolean().optional(),
@@ -467,6 +476,7 @@ export const patchNodesInputSchema = {
 export const patchNodesSchema = z.object(patchNodesInputSchema).strict();
 
 export const inspectSelectionInputSchema = {
+  nodeId: z.string().min(1).max(160).optional(),
   depth: z.number().int().min(0).max(8).optional(),
   maxNodes: z.number().int().min(1).max(1000).optional(),
   screenshot: z.boolean().optional(),

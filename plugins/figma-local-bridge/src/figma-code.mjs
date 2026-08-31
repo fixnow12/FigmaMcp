@@ -239,8 +239,12 @@ export function buildPatchCode({ patches, ignoreMissing, screenshotKey }) {
 const patches = ${literal(patches)};
 const ignoreMissing = ${literal(ignoreMissing)};
 const screenshotKey = ${literal(screenshotKey)};
-const resolved = patches.map((patch) => ({ patch, node: findByKey(patch.key) }));
-const missing = resolved.filter((item) => !item.node).map((item) => item.patch.key);
+const resolved = await Promise.all(patches.map(async (patch) => ({
+  patch,
+  node: patch.key ? findByKey(patch.key) : await figma.getNodeByIdAsync(patch.id),
+})));
+const targetLabel = (patch) => patch.key || patch.id;
+const missing = resolved.filter((item) => !item.node).map((item) => targetLabel(item.patch));
 if (missing.length && !ignoreMissing) {
   throw new Error("Не найдены узлы: " + missing.join(", "));
 }
@@ -283,14 +287,15 @@ for (const { patch, node } of resolved) {
 }
 
 return {
-  patched: resolved.filter((item) => item.node).map((item) => item.patch.key),
+  patched: resolved.filter((item) => item.node).map((item) => targetLabel(item.patch)),
   missing,
   screenshotNodeId: screenshotKey ? findByKey(screenshotKey)?.id || null : null,
 };`;
 }
 
-export function buildInspectCode({ depth, maxNodes }) {
+export function buildInspectCode({ nodeId, depth, maxNodes }) {
   return `${helpers}
+const nodeId = ${literal(nodeId)};
 const maxDepth = ${literal(depth)};
 const maxNodes = ${literal(maxNodes)};
 let count = 0;
@@ -331,7 +336,10 @@ function inspect(node, level) {
 
 return {
   page: { id: figma.currentPage.id, name: figma.currentPage.name },
-  selection: figma.currentPage.selection.map((node) => inspect(node, 0)).filter(Boolean),
+  selection: (nodeId
+    ? [await figma.getNodeByIdAsync(nodeId)].filter(Boolean)
+    : figma.currentPage.selection
+  ).map((node) => inspect(node, 0)).filter(Boolean),
   inspectedNodes: count,
   truncated,
 };`;
