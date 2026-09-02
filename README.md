@@ -1,182 +1,131 @@
 # FigmaMcp
 
-Локальный мост **Codex/OpenCode → Figma Desktop** для чтения и изменения макетов без браузерной автоматизации и без Figma API-токена.
+**FigmaMcp** — локальное подключение Codex или OpenCode к открытому файлу в Figma Desktop. Оно позволяет безопасно читать выделение, создавать экраны, менять узлы и вставлять компоненты — без браузерной автоматизации, Figma API-токена и облачного relay.
 
 ```text
-Codex или OpenCode
-        ↓ STDIO MCP
-figma-local: 4 типизированных инструмента
-        ↓ WebSocket 127.0.0.1:9223–9232
+Codex / OpenCode
+       ↓ MCP по stdio
+figma-local
+       ↓ ws://127.0.0.1:9223–9232 + взаимное HMAC-сопряжение
 Figma Desktop Bridge
-        ↓ Figma Plugin API
-Figma Canvas
+       ↓ Figma Plugin API
+Открытый файл Figma
 ```
 
-Репозиторий оформлен как гибрид:
+## Что умеет
 
-- MCP-сервер выполняет операции;
-- общий навык задаёт безопасный рабочий процесс агенту;
-- Codex-плагин устанавливает MCP и навык вместе;
-- `opencode.json` подключает тот же сервер и тот же навык в OpenCode;
-- development-плагин Figma обеспечивает локальную связь с открытым файлом.
+MCP публикует четыре типизированных инструмента:
 
-## Возможности
-
-Сервер публикует ровно четыре инструмента:
-
-- `inspect_selection` — компактно читает выделение и при необходимости возвращает PNG;
-- `patch_nodes` — пакетно меняет существующие узлы по стабильным ключам или Figma ID;
-- `render_screen` — создаёт экран из типизированной JSON-спецификации;
+- `inspect_selection` — читает выделение и по запросу возвращает PNG;
+- `patch_nodes` — меняет существующие узлы по Figma ID или стабильному ключу;
+- `render_screen` — создаёт экран из JSON-спецификации;
 - `use_component` — вставляет экземпляр локального или библиотечного компонента.
 
-Произвольный JavaScript наружу не выставлен. Созданные мостом узлы получают стабильный `key`, а элементы в обычных существующих макетах можно адресовать по их Figma ID.
+Произвольный JavaScript наружу не выдаётся. Все операции выполняются только в Figma Desktop через установленный development-плагин.
 
-## Требования
+## Быстрый старт
 
-- Windows 10/11 или macOS;
+### 1. Подготовьте компьютер
+
+Нужны:
+
 - Node.js 20 или новее;
 - Figma Desktop;
-- Codex и/или OpenCode.
+- Codex и/или OpenCode;
+- macOS либо Windows 10/11.
 
-## Установка
-
-Клонируйте репозиторий:
+Склонируйте репозиторий:
 
 ```bash
 git clone https://github.com/fixnow12/FigmaMcp.git
 cd FigmaMcp
 ```
 
-### Windows
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
-```
-
-### macOS
+На macOS запустите:
 
 ```bash
 chmod +x scripts/install.sh scripts/start-opencode.sh
 ./scripts/install.sh
 ```
 
-Установщик ставит npm-зависимости без lifecycle-скриптов, запускает тесты, проверяет контракт MCP и при наличии Codex регистрирует локальный marketplace и плагин. OpenCode использует проектный `opencode.json`, поэтому его глобальные MCP-настройки не меняются.
+На Windows откройте PowerShell в папке репозитория:
 
-## Подключение Figma Desktop
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
+```
+
+Установщик ставит зависимости, запускает тесты и проверяет MCP-контракт. Если Codex доступен в терминале, он также добавляет локальный marketplace и плагин.
+
+### 2. Один раз импортируйте Bridge в Figma
 
 1. Откройте Figma Desktop.
 2. Выберите **Plugins → Development → Import plugin from manifest…**.
-3. Укажите файл `plugins/figma-local-bridge/figma-plugin/manifest.json` из клонированного репозитория.
-4. Откройте целевой Figma-файл.
-5. Запустите **Plugins → Development → Figma Desktop Bridge** и оставьте окно плагина открытым.
-6. При первом обращении MCP покажет локальный код вида `9223:…`. Вставьте его в поле **Local pairing code** в окне плагина и нажмите **Pair**. Код высокоэнтропийный, действует только для текущего процесса MCP и не передаётся другим найденным портам.
+3. Укажите `plugins/figma-local-bridge/figma-plugin/manifest.json` из этого репозитория.
+4. Откройте нужный Figma-файл.
+5. Запустите **Plugins → Development → Figma Desktop Bridge** и оставьте его окно открытым.
 
-Пока OpenCode или Codex не запущен, плагин может показывать `Looking for your AI app…`. До сопряжения он показывает `Local pairing required…` и не передаёт сведения о файле, переменные или команды. После взаимной проверки статус меняется на `Connected — AI can work in this file`. Сервер слушает только IPv4 loopback `127.0.0.1`; не публикуйте порты `9223–9232` во внешнюю сеть.
+Если менялись `manifest.json`, `code.js` или `ui.html`, импортируйте manifest ещё раз: Figma кеширует файлы development-плагина.
 
-## Codex
+### 3. Подключите Codex или OpenCode
 
-После установщика перезапустите Codex и откройте проект. Плагин `figma-local-bridge` добавляет MCP и навык автоматически.
+#### Codex
 
-Ручная установка из клонированного репозитория:
+После установщика перезапустите Codex и откройте этот проект. Плагин `figma-local-bridge` подключит MCP и рабочий навык автоматически.
+
+Для ручной установки из корня репозитория:
 
 ```bash
 codex plugin marketplace add .
 codex plugin add figma-local-bridge@figma-mcp
 ```
 
-## OpenCode
+#### OpenCode Desktop
 
-### OpenCode Desktop: установка от начала до конца
+1. Откройте в OpenCode именно корневую папку `FigmaMcp` — в ней лежит `opencode.json`.
+2. Создайте новый чат: OpenCode сам запустит `figma-local`.
+3. Не открывайте отдельно папку `plugins/figma-local-bridge`: тогда проектная конфигурация MCP не будет найдена.
 
-OpenCode Desktop не требует отдельной установки MCP-плагина. Он автоматически читает файл `opencode.json`, когда репозиторий открыт как проект.
-
-#### 1. Установите необходимые приложения
-
-- [Node.js](https://nodejs.org/) версии 20 или новее;
-- Figma Desktop;
-- OpenCode Desktop.
-
-#### 2. Скачайте и подготовьте репозиторий
-
-На macOS откройте Terminal и выполните:
+Для терминальной версии OpenCode используйте из корня репозитория:
 
 ```bash
-git clone https://github.com/fixnow12/FigmaMcp.git
-cd FigmaMcp
-chmod +x scripts/install.sh scripts/start-opencode.sh
-./scripts/install.sh
-```
+# macOS
+./scripts/start-opencode.sh
 
-На Windows откройте PowerShell и выполните:
-
-```powershell
-git clone https://github.com/fixnow12/FigmaMcp.git
-cd FigmaMcp
-powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
-```
-
-Если репозиторий уже скачан, повторно клонировать его не нужно: перейдите в его папку и запустите установщик.
-
-#### 3. Один раз добавьте Bridge в Figma
-
-1. Откройте Figma Desktop.
-2. Выберите **Plugins → Development → Import plugin from manifest…**.
-3. Выберите файл `plugins/figma-local-bridge/figma-plugin/manifest.json` внутри репозитория.
-
-#### 4. Подготовьте нужный Figma-файл
-
-1. Откройте нужный макет в Figma Desktop.
-2. Запустите **Plugins → Development → Figma Desktop Bridge**.
-3. Оставьте окно Bridge открытым. До запуска OpenCode оно может показывать `Looking for your AI app…` — это нормально.
-
-#### 5. Откройте проект в OpenCode Desktop
-
-1. Запустите OpenCode Desktop.
-2. Выберите открытие папки или проекта.
-3. Укажите корневую папку репозитория `FigmaMcp`, в которой лежит `opencode.json`. Не открывайте отдельно подпапку `plugins/figma-local-bridge`.
-4. Создайте новый чат. OpenCode прочитает `opencode.json` и сам запустит локальный MCP-сервер `figma-local`.
-
-После подключения в окне Figma Desktop Bridge появится статус `Connected — AI can work in this file`.
-
-#### 6. Отправьте первую команду
-
-Например:
-
-> Проверь выделение в Figma через figma-local, измени цвет выделенной кнопки на красный и подтверди результат скриншотом.
-
-Сначала выделите нужный элемент в Figma. Если открыто несколько Figma-файлов, укажите ссылку на нужный файл или узел.
-
-#### 7. Если Bridge не подключается
-
-Проверьте три вещи:
-
-1. В OpenCode Desktop открыта именно корневая папка `FigmaMcp` с файлом `opencode.json`.
-2. В Figma открыт нужный файл и запущен **Figma Desktop Bridge**.
-3. Установлен Node.js 20 или новее.
-
-После проверки нажмите **Try again** в Bridge или переоткройте проект в OpenCode Desktop.
-
-### OpenCode в терминале
-
-Если вместо Desktop-приложения используется терминальная версия, запускайте OpenCode из корня репозитория:
-
-```powershell
+# Windows
 .\START_OPENCODE.cmd
 ```
 
-или на macOS:
+## Локальное сопряжение
 
-```bash
-./scripts/start-opencode.sh
-```
+При первом вызове инструмента агент покажет код вида `9223:<secret>` и попросит вставить его в плагин.
 
-Проверить подключение можно командой `opencode mcp list`. Затем выберите свою модель обычным способом и формулируйте задачу, например: «Проверь выделенную кнопку, измени её цвет на красный и подтверди результат скриншотом».
+1. Скопируйте код целиком.
+2. В Figma Desktop Bridge вставьте его в поле **Local pairing code**.
+3. Нажмите **Pair**.
+4. Дождитесь статуса `Connected — AI can work in this file`.
 
-## Работа с несколькими файлами
+Это нормальный обязательный шаг: пока сопряжение не завершено, Bridge не передаёт сведения о файле, переменные, события, скриншоты и не принимает команды. Код действует только для текущего процесса MCP и конкретного порта.
 
-Desktop Bridge может подключить несколько открытых файлов. Сначала агент вызывает `inspect_selection` с `includeFiles: true`, затем передаёт нужный `fileKey`. Если подключён один файл, `fileKey` можно не указывать.
+## Первая команда
 
-## Разработка
+Выделите в Figma нужный элемент и попросите агента, например:
+
+> Проверь выделение через figma-local, сделай кнопку красной и подтверди результат скриншотом.
+
+Если Bridge не подключается, проверьте:
+
+1. Открыт ли нужный файл в Figma Desktop.
+2. Запущен ли **Figma Desktop Bridge** в этом файле.
+3. Открыт ли в Codex/OpenCode именно проект `FigmaMcp`.
+4. Вставлен ли актуальный код сопряжения для текущего процесса MCP.
+
+После этого нажмите **Try again** в плагине либо перезапустите MCP-клиент.
+
+## Несколько файлов
+
+Bridge может держать несколько открытых Figma-файлов. Агент сначала вызывает `inspect_selection` с `includeFiles: true`, затем передаёт нужный `fileKey` в следующий вызов. Если файл один, `fileKey` не нужен.
+
+## Разработка и проверки
 
 ```bash
 cd plugins/figma-local-bridge
@@ -185,29 +134,38 @@ npm test
 npm run verify
 ```
 
-Живые тесты требуют открытого Figma Desktop Bridge:
+Дополнительно из корня репозитория:
+
+```bash
+node scripts/validate-repo.mjs
+```
+
+Живые проверки с открытым Figma Desktop Bridge:
 
 ```bash
 npm run smoke:compact
 npm run smoke:advanced
 ```
 
-Схема design spec пересобирается командой `npm run schema:export`.
+## Безопасность
 
-## Структура
+- Bridge разрешает только `localhost` и слушает IPv4 loopback `127.0.0.1`;
+- внешний cloud relay удалён;
+- до взаимной HMAC-проверки блокируются данные и команды;
+- challenge создаётся заново для каждого WebSocket-соединения;
+- pairing secret не сохраняется в репозитории, не записывается в логи и не возвращается из `/health`.
 
+Не публикуйте порты `9223–9232` во внешнюю сеть и не передавайте pairing-код другим людям. Для автоматизированного запуска можно задать `FIGMA_BRIDGE_AUTH_TOKEN`: минимум 32 символа base64url, только через защищённую конфигурацию окружения.
+
+## Структура репозитория
+
+- `plugins/figma-local-bridge/src/` — MCP-сервер, транспорт и схемы;
+- `plugins/figma-local-bridge/figma-plugin/` — development-плагин для импорта в Figma;
+- `plugins/figma-local-bridge/skills/figma-local/` — рабочий процесс агента;
 - `.agents/plugins/marketplace.json` — локальный marketplace Codex;
-- `plugins/figma-local-bridge/.codex-plugin/plugin.json` — манифест Codex-плагина;
-- `plugins/figma-local-bridge/.mcp.json` — запуск локального MCP;
-- `plugins/figma-local-bridge/skills/figma-local/` — общий рабочий процесс агента;
-- `plugins/figma-local-bridge/src/` — сервер, транспорт, схемы и компилятор операций;
-- `plugins/figma-local-bridge/figma-plugin/` — импортируемый Desktop Bridge;
-- `opencode.json` — переносимая конфигурация OpenCode;
-- `scripts/` — установщики и запуск OpenCode.
+- `opencode.json` — конфигурация OpenCode;
+- `scripts/` — установщики, проверки и запуск OpenCode.
 
-## Безопасность и лицензии
+## Лицензии
 
-Локальный bridge использует случайный сессионный pairing secret и взаимный HMAC challenge-response. Secret возвращается в ошибке первого MCP-инструмента, пока плагин ожидает сопряжения; он не публикуется через `/health`, не записывается в логи и не хранится в репозитории. Для автоматизированного запуска можно передать собственный высокоэнтропийный `FIGMA_BRIDGE_AUTH_TOKEN` (не менее 32 символов base64url) через защищённую конфигурацию окружения. Файлы `.env`, ключи и локальные токены исключены из Git; CI дополнительно проверяет типичные шаблоны секретов.
-
-Наш код распространяется по лицензии MIT. Desktop Bridge получен из `figma-console-mcp@1.40.0`; сведения и исходная лицензия находятся в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) и `plugins/figma-local-bridge/figma-plugin/LICENSE.upstream`.
-Сторонняя копия адаптирована для полностью локальной работы: Figma-плагин разрешает соединения только с `localhost`, а его версия синхронизирована с пакетом `figma-local-bridge`.
+Код этого репозитория распространяется по лицензии MIT. Desktop Bridge основан на `figma-console-mcp@1.40.0`; уведомления и исходная лицензия находятся в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) и `plugins/figma-local-bridge/figma-plugin/LICENSE.upstream`.
