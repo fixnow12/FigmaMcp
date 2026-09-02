@@ -48,7 +48,7 @@ test("plugin UI вычисляет совместимый HMAC без crypto.sub
   const helperEnd = source.indexOf("function setLocalPairingStatus", helperStart);
   assert.ok(helperStart >= 0 && helperEnd > helperStart);
 
-  const token = "5wSUlVhi7oQ04kW2olu5i8VqHXzOfjng";
+  const token = "local_pairing_test_token_0000000000";
   const role = "client";
   const port = 9223;
   const challenge = "abcdefghijklmnopqrstuvwxyzABCDEFG";
