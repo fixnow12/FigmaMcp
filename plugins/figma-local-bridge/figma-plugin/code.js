@@ -4,12 +4,9 @@
 // Uses postMessage to communicate with ui.html (bypassing worker sandbox limitations),
 // which then forwards messages to the MCP server over the WebSocket bridge.
 
-// Plugin version — sent in FILE_INFO for server-side version compatibility checks.
-// The server compares this against the version of the plugin files IT ships to
-// detect stale cached plugins. Bumped by scripts/release.sh ONLY when plugin files
-// change (see issue #62); server-only releases leave it alone, so it may lag
-// package.json — that's intentional, not drift.
-var PLUGIN_VERSION = '1.39.0'; // Last release in which plugin files changed.
+// Plugin version — sent in FILE_INFO for compatibility checks. It follows the
+// same release number as package.json, .codex-plugin/plugin.json and the MCP server.
+var PLUGIN_VERSION = '0.2.2';
 
 console.log('🌉 [Desktop Bridge] Plugin loaded (v' + PLUGIN_VERSION + ')');
 
@@ -149,23 +146,6 @@ var __stickyColors = {
       error: error.message || String(error)
     });
   }
-})();
-
-// Restore persisted cloud pairing config (stored via STORE_CLOUD_CONFIG) and
-// push it to the UI so cloud users don't lose their pairing on plugin reopen.
-// Fire-and-forget: never blocks the FILE_INFO/VARIABLES_DATA pushes above.
-(function() {
-  figma.clientStorage.getAsync('cloudConfig')
-    .then(function(stored) {
-      // Skip if nothing stored or the shape is unusable (e.g., cleared config)
-      if (!stored || !stored.code) return;
-      figma.ui.postMessage({ type: 'CLOUD_CONFIG_RESTORED', config: stored });
-      console.log('🌉 [Desktop Bridge] Restored cloud config from clientStorage');
-    })
-    .catch(function(error) {
-      // clientStorage can throw — non-critical, just log
-      console.warn('🌉 [Desktop Bridge] Could not restore cloud config:', error && error.message ? error.message : String(error));
-    });
 })();
 
 // Helper function to serialize a variable for response
@@ -3763,7 +3743,7 @@ figma.ui.onmessage = async (msg) => {
 
   // ============================================================================
   // CAPTURE_SCREENSHOT - Capture node screenshot using plugin exportAsync
-  // This captures the CURRENT plugin runtime state (not cloud state like REST API)
+  // This captures the current plugin runtime state rather than a REST snapshot.
   // ============================================================================
   else if (msg.type === 'CAPTURE_SCREENSHOT') {
     try {
@@ -3964,18 +3944,10 @@ figma.ui.onmessage = async (msg) => {
   }
 
   // ============================================================================
-  // RESIZE_UI - Dynamically resize the plugin window (e.g., Cloud Mode toggle)
+  // RESIZE_UI - Dynamically resize the plugin window as local panels change
   // ============================================================================
   else if (msg.type === 'RESIZE_UI') {
     figma.ui.resize(msg.width || 120, msg.height || 36);
-  }
-
-  // ============================================================================
-  // STORE_CLOUD_CONFIG - Persist cloud pairing config in clientStorage
-  // ============================================================================
-  else if (msg.type === 'STORE_CLOUD_CONFIG') {
-    figma.clientStorage.setAsync('cloudConfig', { code: msg.code, timestamp: Date.now() })
-      .catch(function() { /* non-critical */ });
   }
 
   // ============================================================================

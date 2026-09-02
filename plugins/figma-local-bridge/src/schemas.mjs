@@ -461,10 +461,39 @@ export const patchNodesInputSchema = {
         .object({
           key: keySchema.optional(),
           id: z.string().min(1).max(160).optional(),
-          set: patchSetSchema,
+          set: patchSetSchema.optional(),
+          append: z.array(designNodeSchema).min(1).max(200).optional(),
         })
         .strict()
-        .refine((value) => Boolean(value.key) !== Boolean(value.id), "Укажите ровно один target: key или id"),
+        .superRefine((value, context) => {
+          if (Boolean(value.key) === Boolean(value.id)) {
+            context.addIssue({ code: z.ZodIssueCode.custom, message: "Укажите ровно один target: key или id" });
+          }
+          if (!value.set && !value.append) {
+            context.addIssue({ code: z.ZodIssueCode.custom, message: "Укажите set и/или append" });
+          }
+          if (!value.append) return;
+          const keys = new Set();
+          for (const [index, node] of value.append.entries()) {
+            if (keys.has(node.key)) {
+              context.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `Повторяющийся append key: ${node.key}`,
+                path: ["append", index, "key"],
+              });
+            }
+            keys.add(node.key);
+          }
+          for (const [index, node] of value.append.entries()) {
+            if (node.parentKey && !keys.has(node.parentKey)) {
+              context.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `Не найден append parentKey: ${node.parentKey}`,
+                path: ["append", index, "parentKey"],
+              });
+            }
+          }
+        }),
     )
     .min(1)
     .max(200),

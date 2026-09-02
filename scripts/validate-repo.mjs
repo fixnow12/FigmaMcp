@@ -26,6 +26,17 @@ const plugin = JSON.parse(await readFile(resolve(root, 'plugins/figma-local-brid
 assert.equal(plugin.name, 'figma-local-bridge');
 assert.equal(plugin.mcpServers, './.mcp.json');
 
+const packageJson = JSON.parse(await readFile(resolve(root, 'plugins/figma-local-bridge/package.json'), 'utf8'));
+assert.equal(plugin.version, packageJson.version);
+
+const figmaManifest = JSON.parse(await readFile(resolve(root, 'plugins/figma-local-bridge/figma-plugin/manifest.json'), 'utf8'));
+for (const domain of [
+  ...(figmaManifest.networkAccess?.allowedDomains || []),
+  ...(figmaManifest.networkAccess?.devAllowedDomains || []),
+]) {
+  assert.match(domain, /^(?:http|ws):\/\/localhost(?::\d+)?$/, `Внешний домен запрещён: ${domain}`);
+}
+
 const mcp = JSON.parse(await readFile(resolve(root, 'plugins/figma-local-bridge/.mcp.json'), 'utf8'));
 assert.deepEqual(Object.keys(mcp.mcpServers), ['figma-local']);
 
