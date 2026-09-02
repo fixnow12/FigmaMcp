@@ -61,3 +61,19 @@ test("компиляторы остальных инструментов соз�
   assert.match(buildUseComponentCode({ sourceKey: "button", key: "instance" }), /createInstance/);
   assert.match(buildUseComponentCode({ sourceKey: "button", key: "instance", variant: { State: "Pressed" } }), /COMPONENT_SET/);
 });
+
+test("patch_nodes компилирует типизированное добавление дочерних узлов", () => {
+  const code = buildPatchCode({
+    patches: [{
+      id: "1:2",
+      append: [
+        { key: "button", name: "Кнопка", type: "frame", width: 160, height: 48 },
+        { key: "button-label", parentKey: "button", name: "Текст", type: "text", content: "Продолжить" },
+      ],
+    }],
+    ignoreMissing: false,
+  });
+  assert.match(code, /nestAppendItems/);
+  assert.match(code, /appendNode/);
+  assert.match(code, /appended/);
+});

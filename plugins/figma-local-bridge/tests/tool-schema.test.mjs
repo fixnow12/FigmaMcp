@@ -53,6 +53,7 @@ test("MCP публикует типизированные схемы без unkn
     const patchProperties = patchNodes.inputSchema.properties.patches.items.properties;
     assert.equal(patchProperties.key.type, "string");
     assert.equal(patchProperties.id.type, "string");
+    assert.equal(patchProperties.append.type, "array");
 
     const inspectSelection = tools.find((tool) => tool.name === "inspect_selection");
     assert.equal(inspectSelection.inputSchema.properties.nodeId.type, "string");

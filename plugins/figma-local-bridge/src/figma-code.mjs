@@ -256,9 +256,103 @@ async function setText(node, content) {
   node.characters = content;
 }
 
+async function loadAppendFont(family, style) {
+  try {
+    await figma.loadFontAsync({ family, style });
+    return { family, style };
+  } catch {
+    await figma.loadFontAsync({ family, style: "Regular" });
+    return { family, style: "Regular" };
+  }
+}
+
+function nestAppendItems(items) {
+  const byKey = new Map(items.map((item) => [item.key, { ...item, children: [] }]));
+  const roots = [];
+  for (const item of items) {
+    const copy = byKey.get(item.key);
+    if (item.parentKey) {
+      const parent = byKey.get(item.parentKey);
+      if (!parent) throw new Error("Не найден append parentKey: " + item.parentKey);
+      parent.children.push(copy);
+    } else {
+      roots.push(copy);
+    }
+  }
+  return roots;
+}
+
+async function appendNode(item, parent, created) {
+  if (findByKey(item.key)) throw new Error("Узел с ключом уже существует: " + item.key);
+  if (item.type === "componentSet") {
+    const components = [];
+    for (const child of item.children || []) {
+      if (child.type !== "component") throw new Error("Component set может содержать только component-варианты");
+      components.push(await appendNode(child, parent, created));
+    }
+    if (components.length < 2) throw new Error("Component set требует минимум два варианта");
+    const set = figma.combineAsVariants(components, parent);
+    set.name = item.name;
+    set.setPluginData(DATA_KEY, item.key);
+    applyLayout(set, item.layout);
+    applyVisual(set, item);
+    if (typeof item.width === "number") set.resize(item.width, set.height);
+    if (typeof item.height === "number") set.resize(set.width, item.height);
+    applyDimension(set, "width", item.width);
+    applyDimension(set, "height", item.height);
+    created.push(set);
+    return set;
+  }
+
+  let node;
+  if (item.type === "text") {
+    node = figma.createText();
+    const font = await loadAppendFont(item.fontFamily || "Inter", item.fontWeight || "Regular");
+    node.fontName = font;
+    node.characters = item.content;
+    node.fontSize = item.fontSize || 14;
+    node.fills = [paint(item.color || "#111827")];
+    if (item.lineHeight) node.lineHeight = { unit: "PIXELS", value: item.lineHeight };
+    if (item.letterSpacing !== undefined) node.letterSpacing = { unit: "PIXELS", value: item.letterSpacing };
+    if (item.textAlign) node.textAlignHorizontal = item.textAlign.toUpperCase();
+    node.textAutoResize = typeof item.width === "number" ? "HEIGHT" : "WIDTH_AND_HEIGHT";
+  } else if (item.type === "rectangle") {
+    node = figma.createRectangle();
+  } else if (item.type === "ellipse") {
+    node = figma.createEllipse();
+  } else if (item.type === "image") {
+    node = figma.createRectangle();
+    const bytes = figma.base64Decode(item.data);
+    const image = figma.createImage(bytes);
+    node.fills = [{ type: "IMAGE", imageHash: image.hash, scaleMode: (item.scaleMode || "fill").toUpperCase() }];
+  } else if (item.type === "svg") {
+    node = figma.createNodeFromSvg(item.svg);
+  } else if (item.type === "component") {
+    node = figma.createComponent();
+    applyLayout(node, item.layout);
+  } else {
+    node = figma.createFrame();
+    applyLayout(node, item.layout);
+  }
+
+  node.name = item.type === "component" ? variantName(item.variant, item.name) : item.name;
+  node.setPluginData(DATA_KEY, item.key);
+  applyVisual(node, item);
+  parent.appendChild(node);
+  created.push(node);
+  if (typeof item.width === "number") node.resize(item.width, node.height);
+  if (typeof item.height === "number") node.resize(node.width, item.height);
+  if ("children" in node) {
+    for (const child of item.children || []) await appendNode(child, node, created);
+  }
+  applyDimension(node, "width", item.width);
+  applyDimension(node, "height", item.height);
+  return node;
+}
+
 for (const { patch, node } of resolved) {
   if (!node) continue;
-  const value = patch.set;
+  const value = patch.set || {};
   if (value.name !== undefined) node.name = value.name;
   if (value.content !== undefined) await setText(node, value.content);
   if (value.visible !== undefined) node.visible = value.visible;
@@ -284,10 +378,23 @@ for (const { patch, node } of resolved) {
   }
   applyDimension(node, "width", value.width);
   applyDimension(node, "height", value.height);
+
+  const created = [];
+  try {
+    for (const root of nestAppendItems(patch.append || [])) {
+      await appendNode(root, node, created);
+    }
+  } catch (error) {
+    for (const createdNode of created.reverse()) {
+      if (createdNode && !createdNode.removed) createdNode.remove();
+    }
+    throw error;
+  }
 }
 
 return {
   patched: resolved.filter((item) => item.node).map((item) => targetLabel(item.patch)),
+  appended: resolved.flatMap((item) => (item.patch.append || []).map((node) => node.key)),
   missing,
   screenshotNodeId: screenshotKey ? findByKey(screenshotKey)?.id || null : null,
 };`;

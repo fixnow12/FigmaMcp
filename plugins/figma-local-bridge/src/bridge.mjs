@@ -1,16 +1,40 @@
 import { createServer as createHttpServer } from "node:http";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
 
 const DEFAULT_HOST = process.env.FIGMA_WS_HOST || "127.0.0.1";
 const DEFAULT_PORT = Number(process.env.FIGMA_WS_PORT || 9223);
 const SERVER_VERSION = "0.2.2";
+export const LOCAL_AUTH_PROTOCOL = "figma-local-bridge-auth-v1";
+
+function resolveAuthToken(authToken) {
+  const token = authToken || process.env.FIGMA_BRIDGE_AUTH_TOKEN || randomBytes(24).toString("base64url");
+  if (!/^[A-Za-z0-9_-]{32,}$/.test(token)) {
+    throw new Error("FIGMA_BRIDGE_AUTH_TOKEN должен содержать не менее 32 символов base64url");
+  }
+  return token;
+}
+
+export function createAuthProof(authToken, role, port, challenge) {
+  if (role !== "client" && role !== "server") throw new Error(`Неизвестная роль аутентификации: ${role}`);
+  return createHmac("sha256", authToken)
+    .update(`${LOCAL_AUTH_PROTOCOL}:${role}:${port}:${challenge}`, "utf8")
+    .digest("base64url");
+}
+
+function proofsMatch(actual, expected) {
+  if (typeof actual !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(actual)) return false;
+  const actualBuffer = Buffer.from(actual, "ascii");
+  const expectedBuffer = Buffer.from(expected, "ascii");
+  return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
+}
 
 function isAllowedOrigin(origin) {
   return !origin || origin === "null" || origin === "https://www.figma.com" || origin === "https://figma.com";
 }
 
 export class LocalFigmaWebSocketServer {
-  constructor({ host = DEFAULT_HOST, port = DEFAULT_PORT } = {}) {
+  constructor({ host = DEFAULT_HOST, port = DEFAULT_PORT, authToken } = {}) {
     this.host = host;
     this.requestedPort = port;
     this.port = null;
@@ -23,6 +47,8 @@ export class LocalFigmaWebSocketServer {
     this.requestCounter = 0;
     this.startedAt = Date.now();
     this.heartbeat = null;
+    this.authToken = resolveAuthToken(authToken);
+    this.authStates = new WeakMap();
   }
 
   handleHttpRequest(request, response) {
@@ -42,6 +68,8 @@ export class LocalFigmaWebSocketServer {
         version: SERVER_VERSION,
         clients: this.clients.size,
         connectedClients,
+        authRequired: true,
+        authProtocol: LOCAL_AUTH_PROTOCOL,
         uptime: Math.floor((Date.now() - this.startedAt) / 1000),
       }));
       return;
@@ -104,6 +132,8 @@ export class LocalFigmaWebSocketServer {
 
   handleConnection(ws) {
     ws.isAlive = true;
+    const challenge = randomBytes(24).toString("base64url");
+    this.authStates.set(ws, { authenticated: false, challenge });
     ws.on("pong", () => {
       ws.isAlive = true;
       const fileKey = this.socketKeys.get(ws);
@@ -119,17 +149,46 @@ export class LocalFigmaWebSocketServer {
     });
     ws.on("close", () => this.handleDisconnect(ws));
     ws.send(JSON.stringify({
-      type: "SERVER_HELLO",
-      data: { port: this.port, pid: process.pid, serverVersion: SERVER_VERSION, startedAt: this.startedAt },
+      type: "PLUGIN_UPDATE_AVAILABLE",
+      data: { reason: "local-auth-required" },
+    }));
+    ws.send(JSON.stringify({
+      type: "AUTH_CHALLENGE",
+      data: { authProtocol: LOCAL_AUTH_PROTOCOL, port: this.port, challenge },
     }));
   }
 
   handleMessage(message, ws) {
+    const authState = this.authStates.get(ws);
+    if (!authState?.authenticated) {
+      if (message.type !== "AUTH_RESPONSE") return;
+      if (!message.data || message.data.authProtocol !== LOCAL_AUTH_PROTOCOL) {
+        ws.send(JSON.stringify({ type: "AUTH_ERROR", data: { error: "Несовместимый протокол локального сопряжения" } }));
+        ws.close(4406, "Unsupported authentication protocol");
+        return;
+      }
+      const expected = createAuthProof(this.authToken, "client", this.port, authState.challenge);
+      if (!proofsMatch(message.data.proof, expected)) {
+        ws.send(JSON.stringify({ type: "AUTH_ERROR", data: { error: "Неверный код локального сопряжения" } }));
+        ws.close(4403, "Authentication failed");
+        return;
+      }
+      authState.authenticated = true;
+      ws.send(JSON.stringify({
+        type: "AUTH_OK",
+        data: {
+          authProtocol: LOCAL_AUTH_PROTOCOL,
+          port: this.port,
+          proof: createAuthProof(this.authToken, "server", this.port, authState.challenge),
+          serverVersion: SERVER_VERSION,
+          startedAt: this.startedAt,
+        },
+      }));
+      return;
+    }
     if (message.id && this.pendingRequests.has(message.id)) {
       const pending = this.pendingRequests.get(message.id);
-      const senderFileKey = this.socketKeys.get(ws);
-      const unambiguousPendingSocket = !senderFileKey && this.wss?.clients.size === 1;
-      if (senderFileKey === pending.fileKey || unambiguousPendingSocket) {
+      if (pending.ws === ws) {
         clearTimeout(pending.timeoutId);
         this.pendingRequests.delete(message.id);
         if (message.error) pending.reject(new Error(message.error));
@@ -156,10 +215,14 @@ export class LocalFigmaWebSocketServer {
   }
 
   registerFile(data, ws) {
+    if (!this.authStates.get(ws)?.authenticated) return;
     const fileKey = typeof data.fileKey === "string" && data.fileKey ? data.fileKey : null;
     if (!fileKey) return;
     const previousKey = this.socketKeys.get(ws);
-    if (previousKey && previousKey !== fileKey) this.clients.delete(previousKey);
+    if (previousKey && previousKey !== fileKey) {
+      ws.close(4409, "fileKey cannot change within a session");
+      return;
+    }
     const existing = this.clients.get(fileKey);
     if (existing && existing.ws !== ws) {
       this.rejectPendingForFile(fileKey, "Соединение с файлом Figma было заменено");
@@ -208,7 +271,7 @@ export class LocalFigmaWebSocketServer {
         this.pendingRequests.delete(id);
         reject(new Error(`Команда ${method} не завершилась за ${timeoutMs} мс`));
       }, timeoutMs);
-      this.pendingRequests.set(id, { resolve, reject, timeoutId, fileKey, method });
+      this.pendingRequests.set(id, { resolve, reject, timeoutId, fileKey, method, ws: client.ws });
       try {
         client.ws.send(JSON.stringify({ id, method, params }));
         client.lastActivity = Date.now();
@@ -231,6 +294,17 @@ export class LocalFigmaWebSocketServer {
 
   isClientConnected() {
     return [...this.clients.values()].some((client) => client.ws.readyState === WebSocket.OPEN);
+  }
+
+  hasPendingAuthentication() {
+    return [...(this.wss?.clients || [])].some((ws) =>
+      ws.readyState === WebSocket.OPEN && !this.authStates.get(ws)?.authenticated
+    );
+  }
+
+  getPairingReference() {
+    if (!this.port) return null;
+    return `${this.port}:${this.authToken}`;
   }
 
   getConnectedFileInfo() {
@@ -264,18 +338,19 @@ export class LocalFigmaWebSocketServer {
 }
 
 export class FigmaBridge {
-  constructor({ host = DEFAULT_HOST, port = DEFAULT_PORT } = {}) {
+  constructor({ host = DEFAULT_HOST, port = DEFAULT_PORT, authToken } = {}) {
     this.host = host;
     this.preferredPort = port;
     this.wsServer = null;
     this.port = null;
+    this.authToken = resolveAuthToken(authToken);
   }
 
   async start() {
     let lastError;
     const attempts = this.preferredPort === 0 ? [0] : Array.from({ length: 10 }, (_, index) => this.preferredPort + index);
     for (const port of attempts) {
-      const candidate = new LocalFigmaWebSocketServer({ port, host: this.host });
+      const candidate = new LocalFigmaWebSocketServer({ port, host: this.host, authToken: this.authToken });
       try {
         await candidate.start();
         this.wsServer = candidate;
@@ -294,6 +369,11 @@ export class FigmaBridge {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (this.wsServer?.isClientConnected()) return this.wsServer.getConnectedFileInfo();
+      if (this.wsServer?.hasPendingAuthentication()) {
+        throw new Error(
+          `Desktop Bridge ждёт локального сопряжения. Вставьте код ${this.wsServer.getPairingReference()} в поле Local pairing в плагине Figma.`,
+        );
+      }
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
     throw new Error(`Desktop Bridge не подключён к ws://${this.host}:${this.port}. Откройте плагин в целевом файле Figma.`);
@@ -319,6 +399,10 @@ export class FigmaBridge {
       file: this.wsServer?.getConnectedFileInfo() || null,
       files: this.wsServer?.getConnectedFiles() || [],
     };
+  }
+
+  getPairingReference() {
+    return this.wsServer?.getPairingReference() || null;
   }
 
   async captureScreenshot(nodeId, { scale = 1, fileKey } = {}) {

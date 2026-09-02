@@ -10,4 +10,4 @@
 
 Копия исходной лицензии находится в `plugins/figma-local-bridge/figma-plugin/LICENSE.upstream`.
 
-Файлы Desktop Bridge сохранены как закреплённая копия для воспроизводимого импорта development-плагина в Figma Desktop. Локальный MCP-сервер этого репозитория не зависит от runtime `figma-console-mcp`.
+Файлы Desktop Bridge сохранены как закреплённая и локально адаптированная копия для воспроизводимого импорта development-плагина в Figma Desktop. Удалены удалённый relay и внешние сетевые разрешения. Локальный MCP-сервер этого репозитория не зависит от runtime `figma-console-mcp`.
