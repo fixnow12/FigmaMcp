@@ -122,6 +122,7 @@ test("типографика меняется на существующем TEXT
 
 test("ошибка после правки текста восстанавливает типографику, размеры и привязки", async () => {
   const mock = createFigmaMock();
+  mock.addVariable({ id: "size", value: 14 });
   const text = mock.make("TEXT", { boundVariables: { fontSize: { type: "VARIABLE_ALIAS", id: "size" } }, fillStyleId: "text-color", textStyleId: "body" });
   const before = { characters: text.characters, fontName: text.fontName, fontSize: text.fontSize, width: text.width, height: text.height };
   const parent = mock.make("FRAME");

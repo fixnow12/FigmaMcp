@@ -3,6 +3,13 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { FigmaBridge } from "./bridge.mjs";
 import { runToolOperation, toolSuccess as ok, toolFailure as fail } from "./tool-results.mjs";
 import {
+  cloneNodesInputSchema, cloneNodesSchema, moveNodesInputSchema, moveNodesSchema,
+  findAssetsInputSchema, findAssetsSchema, bindVariablesInputSchema, bindVariablesSchema,
+} from "./operation-schemas.mjs";
+import { buildCloneCode, buildMoveCode } from "./scene-operations.mjs";
+import { buildFindAssetsCode } from "./asset-catalog.mjs";
+import { buildBindVariablesCode } from "./variable-bindings.mjs";
+import {
   inspectSelectionInputSchema,
   inspectSelectionSchema,
   patchNodesInputSchema,
@@ -24,6 +31,7 @@ const instructions =
   "Локальный write-путь в Figma через Plugin API. Для нового экрана используйте render_screen, " +
   "для итераций — patch_nodes, для чтения выделения — inspect_selection, для экземпляров — use_component. " +
   "Для подключения и списка файлов используйте get_status. Узлы адресуются стабильным key или id. Не перерисовывайте экран ради точечной правки. " +
+  "find_assets находит элементы и ресурсы; clone_nodes копирует готовые блоки; move_nodes переносит и переставляет слои; bind_variables привязывает существующие Variables без изменения их значений. " +
   "Перед патчем неизвестного дизайна вызовите inspect_selection. Сервер не принимает произвольный JavaScript.";
 
 const bridge = new FigmaBridge();
@@ -50,7 +58,7 @@ server.registerTool(
   {
     title: "Создать экран",
     description:
-      "Создаёт целый экран из плоской JSON-спеки с токенами, PNG/JPEG, SVG и вариантами. Повторный вызов с тем же spec.key атомарно заменяет предыдущую версию после успешной сборки; PNG возвращается по умолчанию.",
+      "Создаёт экран из JSON-спеки с токенами, PNG/JPEG, SVG и вариантами. Повторный вызов с тем же spec.key заменяет предыдущую версию после успешной сборки, сохраняя посторонние элементы секции; PNG возвращается по умолчанию.",
     inputSchema: renderScreenInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
   },
@@ -151,6 +159,49 @@ server.registerTool(
     }
   },
 );
+
+function registerGeneratedTool(name, config, schema, buildCode, { mutating = true } = {}) {
+  server.registerTool(name, config, async (input) => {
+    try {
+      const parsed = schema.parse(input);
+      return await runToolOperation(bridge, parsed, buildCode(parsed), {
+        mutating,
+        screenshotRequested: parsed.screenshot,
+        screenshotNode: (payload) => payload.result?.screenshotNodeId,
+      });
+    } catch (error) {
+      return fail(error);
+    }
+  });
+}
+
+registerGeneratedTool("clone_nodes", {
+  title: "Скопировать элементы",
+  description: "Клонирует готовые блоки с сохранением оформления и экземпляров. Назначает новые key всем слоям копий, возвращает соответствие sourceId → id. При ошибке удаляет созданные копии. Не копирует определения компонентов и не меняет их внутреннюю структуру.",
+  inputSchema: cloneNodesInputSchema,
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+}, cloneNodesSchema, buildCloneCode);
+
+registerGeneratedTool("move_nodes", {
+  title: "Переместить элементы",
+  description: "Перемещает или переставляет узлы текущей страницы по ID между PAGE/FRAME/SECTION. index — конечная позиция с нуля на каждом шаге пакета. Сохраняет ID; при ошибке восстанавливает родителей, порядок и геометрию. Компоненты и внутреннюю структуру экземпляров не меняет.",
+  inputSchema: moveNodesInputSchema,
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+}, moveNodesSchema, buildMoveCode);
+
+registerGeneratedTool("find_assets", {
+  title: "Найти элементы и ресурсы",
+  description: "Ищет по имени nodes/components на странице или во всём файле, локальные styles/variables и метаданные доступных библиотечных коллекций/переменных. Возвращает ID, ключи, свойства и страницы результатов. Не импортирует ресурсы; внешний каталог компонентов недоступен через Plugin API.",
+  inputSchema: findAssetsInputSchema,
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+}, findAssetsSchema, buildFindAssetsCode, { mutating: false });
+
+registerGeneratedTool("bind_variables", {
+  title: "Привязать переменные",
+  description: "Привязывает доступные в файле Figma Variables по variableId к поддержанным свойствам слоёв и SOLID-заливкам/обводкам. variableId=null снимает привязку. Проверяет типы до записи, при сбое восстанавливает исходные значения и привязки. allowComponentChanges требует подтверждения пользователя на изменение оригинала компонента.",
+  inputSchema: bindVariablesInputSchema,
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+}, bindVariablesSchema, buildBindVariablesCode);
 
 const transport = new StdioServerTransport();
 

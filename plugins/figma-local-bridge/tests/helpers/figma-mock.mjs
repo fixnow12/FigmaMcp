@@ -6,6 +6,12 @@ export function createFigmaMock() {
   const nodes = new Map();
   const writes = [];
   const loadedFonts = [];
+  const variables = new Map();
+  const collections = [];
+  const styles = [];
+  const libraryCollections = [];
+  const libraryVariables = new Map();
+  const copyValue = (value) => value === undefined || typeof value === "symbol" ? value : JSON.parse(JSON.stringify(value));
   let counter = 0;
   let rejectWrite = () => false;
   const mixed = Symbol("mixed");
@@ -18,6 +24,7 @@ export function createFigmaMock() {
       fills: [], strokes: [], strokeWeight: 1, boundVariables: {},
       layoutSizingHorizontal: "FIXED", layoutSizingVertical: "FIXED",
       getPluginData: (key) => data[key] || "",
+      getPluginDataKeys: () => Object.keys(data),
       setPluginData: (key, value) => { data[key] = value; },
       resize(width, height) { this.width = width; this.height = height; },
       remove() {
@@ -28,7 +35,25 @@ export function createFigmaMock() {
       },
       async setFillStyleIdAsync(id) { this.fillStyleId = id; },
       async setStrokeStyleIdAsync(id) { this.strokeStyleId = id; },
-      setBoundVariable(field, variable) { this.boundVariables = { ...this.boundVariables, [field]: { type: "VARIABLE_ALIAS", id: variable.id } }; },
+      setBoundVariable(field, variable) {
+        const bindings = { ...this.boundVariables };
+        if (variable) bindings[field] = { type: "VARIABLE_ALIAS", id: variable.id };
+        else delete bindings[field];
+        this.boundVariables = bindings;
+        if (variable?.resolveForConsumer) this[field] = copyValue(variable.resolveForConsumer(this).value);
+      },
+      clone() {
+        function duplicate(source, parent) {
+          const values = Object.fromEntries(Object.entries(source)
+            .filter(([key, value]) => typeof value !== "function" && !["id", "parent", "children", "selection", "removed"].includes(key))
+            .map(([key, value]) => [key, copyValue(value)]));
+          const result = make(source.type, values, parent);
+          for (const key of source.getPluginDataKeys()) result.setPluginData(key, source.getPluginData(key));
+          for (const child of source.children || []) duplicate(child, result);
+          return result;
+        }
+        return duplicate(this, this.parent);
+      },
     };
     if (["PAGE", "SECTION", "FRAME", "COMPONENT", "COMPONENT_SET", "INSTANCE"].includes(type)) {
       Object.assign(raw, {
@@ -41,6 +66,17 @@ export function createFigmaMock() {
           this.children = [...this.children, child];
           child.parent = this;
         },
+        insertChild(index, child) {
+          const available = this.children.filter((node) => node !== child);
+          if (!Number.isInteger(index) || index < 0 || index > available.length) throw new Error("Индекс за границами");
+          for (let ancestor = this; ancestor; ancestor = ancestor.parent) if (ancestor === child) throw new Error("Цикл");
+          if (child.parent && child.parent !== this) child.parent.children = child.parent.children.filter((node) => node !== child);
+          available.splice(index, 0, child);
+          this.children = available;
+          child.parent = this;
+        },
+        async loadAsync() {},
+        findAllWithCriteria({ types }) { return this.findAll((node) => types.includes(node.type)); },
         findAll(predicate = () => true) {
           return this.children.flatMap((node) => [...(predicate(node) ? [node] : []), ...(node.findAll?.(predicate) || [])]);
         },
@@ -77,7 +113,7 @@ export function createFigmaMock() {
   }
   page = make("PAGE", { name: "Страница" }, null);
   const figma = {
-    currentPage: page, mixed, root: { name: "Тестовый файл" },
+    currentPage: page, mixed, root: { name: "Тестовый файл", children: [page] },
     getNodeByIdAsync: async (id) => nodes.get(id) || null,
     loadFontAsync: async (font) => {
       if (font.family === "Missing") throw new Error("Шрифт недоступен");
@@ -90,10 +126,39 @@ export function createFigmaMock() {
     createImage: () => { throw new Error("Некорректное изображение"); },
     createNodeFromSvg: () => { throw new Error("Некорректный SVG"); },
     viewport: { scrollAndZoomIntoView() {} },
-    variables: { getVariableByIdAsync: async (id) => ({ id }) },
+    getLocalPaintStylesAsync: async () => styles.filter((style) => style.type === "PAINT"),
+    getLocalTextStylesAsync: async () => styles.filter((style) => style.type === "TEXT"),
+    getLocalEffectStylesAsync: async () => styles.filter((style) => style.type === "EFFECT"),
+    getLocalGridStylesAsync: async () => styles.filter((style) => style.type === "GRID"),
+    variables: {
+      getVariableByIdAsync: async (id) => variables.get(id) || null,
+      getLocalVariablesAsync: async () => [...variables.values()],
+      getLocalVariableCollectionsAsync: async () => collections,
+      setBoundVariableForPaint(paint, field, variable) {
+        const boundVariables = { ...(paint.boundVariables || {}) };
+        if (variable) boundVariables[field] = { type: "VARIABLE_ALIAS", id: variable.id };
+        else delete boundVariables[field];
+        return { ...copyValue(paint), boundVariables };
+      },
+    },
+    teamLibrary: {
+      getAvailableLibraryVariableCollectionsAsync: async () => libraryCollections,
+      getVariablesInLibraryCollectionAsync: async (key) => libraryVariables.get(key) || [],
+    },
   };
+  function addVariable({ id, name = id, type = "FLOAT", value = 14, valuesByMode = { default: value }, collectionId = "collection" }) {
+    const variable = {
+      id, key: "key:" + id, name, resolvedType: type, variableCollectionId: collectionId, valuesByMode,
+      resolveForConsumer(node) {
+        const mode = node.explicitVariableModes?.[collectionId] || Object.keys(valuesByMode)[0];
+        return { value: valuesByMode[mode], resolvedType: type };
+      },
+    };
+    variables.set(id, variable);
+    return variable;
+  }
   return {
-    figma, page, make, nodes, writes, loadedFonts,
+    figma, page, make, nodes, writes, loadedFonts, addVariable, variables, collections, styles, libraryCollections, libraryVariables,
     key(node, value) { node.setPluginData(DATA_KEY, value); return node; },
     rejectWrites(fn) { rejectWrite = fn; },
   };
