@@ -19,11 +19,11 @@ export function toolFailure(error) {
 
 // The write and its optional preview share the same pinned connection target and queue.
 export async function runToolOperation(bridge, input, code, {
-  mutating = true, timeout, screenshotRequested = false, screenshotNode, extendPayload,
+  mutating = true, timeout, screenshotRequested = false, screenshotNode, extendPayload, operationName,
 } = {}) {
   try {
     return await bridge.runInFile(input.fileKey, async (target) => {
-      const payload = await bridge.execute(code, { ...target, timeout });
+      const payload = await bridge.execute(code, { ...target, timeout, operation: { name: operationName, mutating } });
       payload.operationStatus = mutating ? "applied" : "read";
       if (extendPayload) extendPayload(payload);
       if (!screenshotRequested) return toolSuccess(payload);

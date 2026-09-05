@@ -71,6 +71,7 @@ server.registerTool(
         spec: normalizeScreenSpec(parsed.spec),
       };
       return await runToolOperation(bridge, parsed, buildRenderCode(operation), {
+        operationName: "render_screen",
         screenshotRequested: parsed.screenshot !== false,
         screenshotNode: (payload) => payload.result?.rootId,
       });
@@ -94,6 +95,7 @@ server.registerTool(
       const parsed = patchNodesSchema.parse(input);
       const operation = { ...parsed, ignoreMissing: parsed.ignoreMissing ?? false };
       return await runToolOperation(bridge, parsed, buildPatchCode(operation), {
+        operationName: "patch_nodes",
         screenshotRequested: Boolean(parsed.screenshotKey),
         screenshotNode: (payload) => payload.result?.screenshotNodeId,
       });
@@ -121,6 +123,7 @@ server.registerTool(
         maxNodes: parsed.maxNodes ?? 200,
       };
       return await runToolOperation(bridge, parsed, buildInspectCode(operation), {
+        operationName: "inspect_selection",
         mutating: false,
         timeout: 10000,
         screenshotRequested: parsed.screenshot,
@@ -151,6 +154,7 @@ server.registerTool(
     try {
       const parsed = useComponentSchema.parse(input);
       return await runToolOperation(bridge, parsed, buildUseComponentCode(parsed), {
+        operationName: "use_component",
         screenshotRequested: parsed.screenshot,
         screenshotNode: (payload) => payload.result?.id,
       });
@@ -165,6 +169,7 @@ function registerGeneratedTool(name, config, schema, buildCode, { mutating = tru
     try {
       const parsed = schema.parse(input);
       return await runToolOperation(bridge, parsed, buildCode(parsed), {
+        operationName: name,
         mutating,
         screenshotRequested: parsed.screenshot,
         screenshotNode: (payload) => payload.result?.screenshotNodeId,

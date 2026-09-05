@@ -479,6 +479,7 @@ figma.ui.onmessage = async (msg) => {
     var previousExecution = executeCodeQueue;
     var releaseExecution;
     executeCodeQueue = new Promise(function(resolve) { releaseExecution = resolve; });
+    figma.ui.postMessage({ type: 'OPERATION_PROGRESS', requestId: msg.requestId, state: 'queued' });
     await previousExecution;
     var executionControl = { cancelled: false };
     var executionTimer;
@@ -489,6 +490,8 @@ figma.ui.onmessage = async (msg) => {
         expiredError.operationStatus = 'not_applied';
         throw expiredError;
       }
+      figma.ui.postMessage({ type: 'OPERATION_PROGRESS', requestId: msg.requestId, state: 'running',
+        fileContext: { fileName: figma.root.name, pageName: figma.currentPage.name } });
       console.log('🌉 [Desktop Bridge] Executing code, length:', msg.code.length);
 
       // Use eval with async IIFE wrapper instead of AsyncFunction constructor
@@ -524,7 +527,8 @@ figma.ui.onmessage = async (msg) => {
           type: 'EXECUTE_CODE_RESULT',
           requestId: msg.requestId,
           success: false,
-          error: 'Syntax error: ' + syntaxErrorMsg
+          error: 'Syntax error: ' + syntaxErrorMsg,
+          operationStatus: 'not_applied'
         });
         return;
       }

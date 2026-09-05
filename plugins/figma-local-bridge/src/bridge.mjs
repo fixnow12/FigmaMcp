@@ -410,10 +410,13 @@ export class FigmaBridge {
     }
   }
 
-  async execute(code, { timeout = 30000, fileKey, pageId, expectedSocket } = {}) {
+  async execute(code, { timeout = 30000, fileKey, pageId, expectedSocket, operation } = {}) {
     await this.waitForConnection();
-    if (pageId) code = `if (figma.currentPage.id !== ${JSON.stringify(pageId)}) throw new Error("Активная страница изменилась. Повторите чтение макета.");\n` + code;
-    const response = await this.wsServer.sendCommand("EXECUTE_CODE", { code, timeout }, timeout + 2000, fileKey, expectedSocket);
+    if (pageId) code = `if (figma.currentPage.id !== ${JSON.stringify(pageId)}) { const error = new Error("Активная страница изменилась. Повторите чтение макета."); error.operationStatus = "not_applied"; throw error; }\n` + code;
+    const targetInfoBefore = this.wsServer.getConnectedFiles().find((file) => file.fileKey === fileKey) || this.wsServer.getConnectedFileInfo();
+    const metadata = operation ? { name: operation.name, mutating: operation.mutating,
+      fileName: targetInfoBefore?.fileName, pageName: targetInfoBefore?.currentPage, pageId } : undefined;
+    const response = await this.wsServer.sendCommand("EXECUTE_CODE", { code, timeout, ...(metadata ? { operation: metadata } : {}) }, timeout + 2000, fileKey, expectedSocket);
     if (!response?.success) {
       const error = new Error(response?.error || "Figma Plugin API вернул ошибку");
       error.operationStatus = response?.operationStatus || "unknown";

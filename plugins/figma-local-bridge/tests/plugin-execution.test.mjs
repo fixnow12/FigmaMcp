@@ -14,7 +14,7 @@ async function executionHandler(figma, globals = {}) {
   const listeners = new Map();
   figma.ui = { postMessage(message) {
     messages.push(message);
-    listeners.get(message.requestId)?.(message);
+    if (message.type === "EXECUTE_CODE_RESULT") listeners.get(message.requestId)?.(message);
   } };
   vm.runInNewContext(source.slice(start, end) + "\n};", {
     figma, setTimeout, clearTimeout, console: { log() {}, warn() {}, error() {} }, ...globals,
@@ -43,7 +43,8 @@ test("тайм-аут не освобождает очередь до завер
     await Promise.all([first, second]);
   }
   assert.deepEqual(events, ["first-start", "second"]);
-  assert.equal(handler.messages.find((message) => message.requestId === "second").success, true);
+  assert.equal(handler.messages.find((message) => message.requestId === "second" && message.type === "EXECUTE_CODE_RESULT").success, true);
+  assert.deepEqual(handler.messages.filter((message) => message.type === "OPERATION_PROGRESS").map((message) => [message.requestId, message.state]), [["first", "queued"], ["second", "queued"], ["first", "running"], ["second", "running"]]);
 });
 
 test("сгенерированный патч после тайм-аута на загрузке шрифта не пишет в макет", async () => {
@@ -80,5 +81,6 @@ test("просроченная команда в очереди не выпол�
   release();
   await Promise.all([first, second]);
   assert.deepEqual(events, []);
-  assert.equal(handler.messages.find((message) => message.requestId === "expired").operationStatus, "not_applied");
+  assert.equal(handler.messages.find((message) => message.requestId === "expired" && message.type === "EXECUTE_CODE_RESULT").operationStatus, "not_applied");
+  assert.equal(handler.messages.some((message) => message.requestId === "expired" && message.state === "running"), false);
 });

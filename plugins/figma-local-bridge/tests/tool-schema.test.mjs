@@ -95,6 +95,7 @@ test("MCP → WebSocket → сгенерированный патч: ошибк�
   const mock = createFigmaMock();
   const text = mock.key(mock.make("TEXT"), "title");
   let socket;
+  const operations = [];
   try {
     await client.connect(transport);
     const status = await client.callTool({ name: "get_status", arguments: {} });
@@ -112,6 +113,7 @@ test("MCP → WebSocket → сгенерированный патч: ошибк�
           socket.once("pong", resolve);
           socket.ping();
         } else if (message.method === "EXECUTE_CODE") {
+          operations.push(message.params.operation);
           try {
             const result = await executeGenerated(mock.figma, message.params.code);
             socket.send(JSON.stringify({ id: message.id, result: { success: true, result } }));
@@ -147,6 +149,9 @@ test("MCP → WebSocket → сгенерированный патч: ошибк�
     assert.equal(bound.isError, undefined);
     assert.equal(mock.nodes.get(copyId).boundVariables.fontSize.id, "font-size");
     assert.equal(text.fontSize, 18);
+    assert.deepEqual(operations.map((operation) => operation.name), ["patch_nodes", "find_assets", "clone_nodes", "move_nodes", "bind_variables"]);
+    assert.equal(operations[1].mutating, false);
+    assert.ok(operations.every((operation) => operation.fileName === "Тест" && operation.pageId === mock.page.id));
     const invalid = await client.callTool({ name: "patch_nodes", arguments: { fileKey: "test-file", patches: [{ id: mock.page.id, set: { content: "Нельзя" } }] } });
     assert.equal(invalid.isError, true);
     assert.equal(invalid.structuredContent.operationStatus, "not_applied");
