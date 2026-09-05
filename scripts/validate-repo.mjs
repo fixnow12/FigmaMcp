@@ -27,7 +27,9 @@ assert.equal(plugin.name, 'figma-local-bridge');
 assert.equal(plugin.mcpServers, './.mcp.json');
 
 const packageJson = JSON.parse(await readFile(resolve(root, 'plugins/figma-local-bridge/package.json'), 'utf8'));
-assert.equal(plugin.version, packageJson.version);
+// Codex adds a build suffix to refresh its installed cache; the runtime version stays aligned.
+assert.equal(plugin.version.split("+")[0], packageJson.version);
+assert.match(plugin.version, /^[^+]+(?:\+codex\.[a-z0-9-]+)?$/);
 
 const figmaManifest = JSON.parse(await readFile(resolve(root, 'plugins/figma-local-bridge/figma-plugin/manifest.json'), 'utf8'));
 for (const domain of [

@@ -103,6 +103,7 @@ test("версия Figma plugin совпадает с версиями паке�
   const serverVersion = server.match(/name: "codex-figma-compact", version: "([^"]+)"/)?.[1];
 
   assert.equal(pluginVersion, packageJson.version);
-  assert.equal(codexPlugin.version, packageJson.version);
+  assert.equal(codexPlugin.version.split("+")[0], packageJson.version);
+  assert.match(codexPlugin.version, /^[^+]+(?:\+codex\.[a-z0-9-]+)?$/);
   assert.equal(serverVersion, packageJson.version);
 });
