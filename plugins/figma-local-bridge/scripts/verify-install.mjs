@@ -6,7 +6,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const serverPath = resolve(pluginRoot, 'src', 'server.mjs');
-const expectedTools = ['get_status', 'inspect_selection', 'patch_nodes', 'render_screen', 'use_component'];
+const expectedTools = ['bind_variables', 'clone_nodes', 'find_assets', 'get_status', 'inspect_selection', 'move_nodes', 'patch_nodes', 'render_screen', 'use_component'];
 
 const transport = new StdioClientTransport({
   command: process.execPath,

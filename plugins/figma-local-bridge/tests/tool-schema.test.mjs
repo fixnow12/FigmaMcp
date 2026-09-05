@@ -29,7 +29,7 @@ test("MCP публикует типизированные схемы без unkn
     const { tools } = await client.listTools();
     assert.deepEqual(
       tools.map((tool) => tool.name).sort(),
-      ["get_status", "inspect_selection", "patch_nodes", "render_screen", "use_component"],
+      ["bind_variables", "clone_nodes", "find_assets", "get_status", "inspect_selection", "move_nodes", "patch_nodes", "render_screen", "use_component"],
     );
 
     const render = tools.find((tool) => tool.name === "render_screen");
@@ -69,6 +69,17 @@ test("MCP публикует типизированные схемы без unkn
     assert.equal(useComponent.inputSchema.properties.sourceId.type, "string");
     assert.equal(useComponent.inputSchema.properties.parentId.type, "string");
     assert.equal(patchNodes.annotations.idempotentHint, false);
+    const clone = tools.find((tool) => tool.name === "clone_nodes");
+    assert.equal(clone.inputSchema.properties.copies.items.properties.sourceId.type, "string");
+    assert.equal(clone.annotations.idempotentHint, false);
+    const move = tools.find((tool) => tool.name === "move_nodes");
+    assert.equal(move.inputSchema.properties.moves.items.properties.parentId.type, "string");
+    const assets = tools.find((tool) => tool.name === "find_assets");
+    assert.equal(assets.annotations.readOnlyHint, true);
+    assert.ok(assets.inputSchema.properties.kind.enum.includes("variables"));
+    const bindings = tools.find((tool) => tool.name === "bind_variables");
+    assert.equal(bindings.inputSchema.properties.bindings.items.properties.nodeId.type, "string");
+    assert.equal(bindings.inputSchema.properties.allowComponentChanges.type, "boolean");
   } finally {
     await client.close();
   }
@@ -121,6 +132,20 @@ test("MCP → WebSocket → сгенерированный патч: ошибк�
     assert.equal(response.structuredContent.screenshot.status, "failed");
     assert.equal(response.structuredContent.fileContext.fileKey, "test-file");
     assert.equal(text.characters, "Готово");
+    assert.equal(text.fontSize, 18);
+    const found = await client.callTool({ name: "find_assets", arguments: { kind: "nodes", types: ["TEXT"], fileKey: "test-file" } });
+    assert.equal(found.structuredContent.result.items[0].id, text.id);
+    const cloned = await client.callTool({ name: "clone_nodes", arguments: { copies: [{ sourceId: text.id, key: "title-copy" }], fileKey: "test-file" } });
+    assert.equal(cloned.isError, undefined);
+    const copyId = cloned.structuredContent.result.copies[0].id;
+    assert.notEqual(copyId, text.id);
+    const moved = await client.callTool({ name: "move_nodes", arguments: { moves: [{ id: copyId, index: 0 }], fileKey: "test-file" } });
+    assert.equal(moved.isError, undefined);
+    assert.equal(mock.page.children[0].id, copyId);
+    mock.addVariable({ id: "font-size", value: 22 });
+    const bound = await client.callTool({ name: "bind_variables", arguments: { bindings: [{ nodeId: copyId, field: "fontSize", variableId: "font-size" }], fileKey: "test-file" } });
+    assert.equal(bound.isError, undefined);
+    assert.equal(mock.nodes.get(copyId).boundVariables.fontSize.id, "font-size");
     assert.equal(text.fontSize, 18);
     const invalid = await client.callTool({ name: "patch_nodes", arguments: { fileKey: "test-file", patches: [{ id: mock.page.id, set: { content: "Нельзя" } }] } });
     assert.equal(invalid.isError, true);
