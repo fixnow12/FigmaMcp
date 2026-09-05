@@ -18,7 +18,7 @@
     "smoke:compact": "node scripts/compact-smoke-test.mjs",
     "smoke:advanced": "node scripts/advanced-smoke-test.mjs",
     "schema:export": "node scripts/export-schema.mjs",
-    "test": "node --test tests/schemas.test.mjs tests/figma-code.test.mjs tests/bridge.test.mjs tests/plugin-auth.test.mjs tests/tool-schema.test.mjs"
+    "test": "node --test tests/schemas.test.mjs tests/figma-code.test.mjs tests/bridge.test.mjs tests/plugin-auth.test.mjs tests/tool-schema.test.mjs tests/mutations.test.mjs tests/tool-results.test.mjs tests/plugin-execution.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

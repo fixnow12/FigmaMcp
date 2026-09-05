@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { FigmaBridge } from "./bridge.mjs";
+import { runToolOperation, toolSuccess as ok, toolFailure as fail } from "./tool-results.mjs";
 import {
   inspectSelectionInputSchema,
   inspectSelectionSchema,
@@ -22,7 +23,7 @@ import {
 const instructions =
   "Локальный write-путь в Figma через Plugin API. Для нового экрана используйте render_screen, " +
   "для итераций — patch_nodes, для чтения выделения — inspect_selection, для экземпляров — use_component. " +
-  "Все изменяемые узлы адресуются стабильным key. Не перерисовывайте экран ради точечной правки. " +
+  "Для подключения и списка файлов используйте get_status. Узлы адресуются стабильным key или id. Не перерисовывайте экран ради точечной правки. " +
   "Перед патчем неизвестного дизайна вызовите inspect_selection. Сервер не принимает произвольный JavaScript.";
 
 const bridge = new FigmaBridge();
@@ -33,43 +34,16 @@ const server = new McpServer(
   { instructions },
 );
 
-function ok(payload) {
-  return {
-    content: [{ type: "text", text: JSON.stringify(payload) }],
-    structuredContent: payload,
-  };
-}
-
-function okWithImage(payload, image) {
-  return {
-    content: [
-      { type: "text", text: JSON.stringify(payload) },
-      { type: "image", data: image.base64, mimeType: "image/png" },
-    ],
-    structuredContent: {
-      ...payload,
-      screenshot: {
-        format: image.format,
-        scale: image.scale,
-        byteLength: image.byteLength,
-        bounds: image.bounds,
-        node: image.node,
-      },
-    },
-  };
-}
-
-function fail(error) {
-  return {
-    isError: true,
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
-      },
-    ],
-  };
-}
+server.registerTool("get_status", {
+  title: "Проверить подключение",
+  description: "Мгновенно возвращает состояние локального Bridge и список подключённых файлов и страниц без чтения холста. Если сопряжение ожидается, показывает код для ввода в Figma.",
+  inputSchema: {},
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+}, async () => {
+  const status = bridge.status();
+  if (!status.connected) status.pairingReference = bridge.getPairingReference();
+  return ok(status);
+});
 
 server.registerTool(
   "render_screen",
@@ -88,15 +62,10 @@ server.registerTool(
         replace: parsed.replace ?? true,
         spec: normalizeScreenSpec(parsed.spec),
       };
-      const payload = await bridge.execute(buildRenderCode(operation), { fileKey: parsed.fileKey });
-      if (parsed.screenshot !== false && payload.result?.rootId) {
-        const image = await bridge.captureScreenshot(payload.result.rootId, {
-          scale: parsed.screenshotScale ?? 1,
-          fileKey: parsed.fileKey,
-        });
-        return okWithImage(payload, image);
-      }
-      return ok(payload);
+      return await runToolOperation(bridge, parsed, buildRenderCode(operation), {
+        screenshotRequested: parsed.screenshot !== false,
+        screenshotNode: (payload) => payload.result?.rootId,
+      });
     } catch (error) {
       return fail(error);
     }
@@ -108,23 +77,18 @@ server.registerTool(
   {
     title: "Изменить узлы",
     description:
-      "Применяет пакет точечных изменений к узлам по стабильным key без пересоздания экрана. По умолчанию сначала проверяет наличие всех целей.",
+      "Проверяет цели, свойства и шрифты всего пакета до записи. Применяет изменения по key или id, при сбое восстанавливает свойства и сообщает результат отката. Append создаёт новые узлы и не должен автоматически повторяться.",
     inputSchema: patchNodesInputSchema,
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   },
   async (input) => {
     try {
       const parsed = patchNodesSchema.parse(input);
       const operation = { ...parsed, ignoreMissing: parsed.ignoreMissing ?? false };
-      const payload = await bridge.execute(buildPatchCode(operation), { fileKey: parsed.fileKey });
-      if (payload.result?.screenshotNodeId) {
-        const image = await bridge.captureScreenshot(payload.result.screenshotNodeId, {
-          scale: parsed.screenshotScale ?? 1,
-          fileKey: parsed.fileKey,
-        });
-        return okWithImage(payload, image);
-      }
-      return ok(payload);
+      return await runToolOperation(bridge, parsed, buildPatchCode(operation), {
+        screenshotRequested: Boolean(parsed.screenshotKey),
+        screenshotNode: (payload) => payload.result?.screenshotNodeId,
+      });
     } catch (error) {
       return fail(error);
     }
@@ -136,7 +100,7 @@ server.registerTool(
   {
     title: "Прочитать выделение",
     description:
-      "Возвращает компактное дерево текущего выделения: id, стабильные key, размеры, layout, текст и свойства экземпляров. Опционально прикладывает PNG первого выделенного узла.",
+      "Читает выделение, nodeId или nodeIds. Компактное дерево содержит размеры, layout, текст и свойства экземпляров; detail=full добавляет типографику, заливки, стили, переменные и Fill/Hug/Fixed. Опционально прикладывает PNG первого узла.",
     inputSchema: inspectSelectionInputSchema,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
@@ -148,20 +112,18 @@ server.registerTool(
         depth: parsed.depth ?? 3,
         maxNodes: parsed.maxNodes ?? 200,
       };
-      const payload = await bridge.execute(buildInspectCode(operation), { timeout: 10000, fileKey: parsed.fileKey });
-      if (parsed.includeFiles) {
-        payload.bridge = bridge.status();
-        payload.connectedFiles = payload.bridge.files;
-      }
-      const firstNodeId = payload.result?.selection?.[0]?.id;
-      if (parsed.screenshot && firstNodeId) {
-        const image = await bridge.captureScreenshot(firstNodeId, {
-          scale: parsed.screenshotScale ?? 1,
-          fileKey: parsed.fileKey,
-        });
-        return okWithImage(payload, image);
-      }
-      return ok(payload);
+      return await runToolOperation(bridge, parsed, buildInspectCode(operation), {
+        mutating: false,
+        timeout: 10000,
+        screenshotRequested: parsed.screenshot,
+        screenshotNode: (payload) => payload.result?.selection?.[0]?.id,
+        extendPayload: (payload) => {
+          if (parsed.includeFiles) {
+            payload.bridge = bridge.status();
+            payload.connectedFiles = payload.bridge.files;
+          }
+        },
+      });
     } catch (error) {
       return fail(error);
     }
@@ -173,22 +135,17 @@ server.registerTool(
   {
     title: "Создать экземпляр компонента",
     description:
-      "Создаёт instance локального COMPONENT/COMPONENT_SET по sourceKey или библиотечного компонента по libraryKey, выбирает variant, назначает componentProperties и стабильный key.",
+      "Создаёт instance локального COMPONENT/COMPONENT_SET по sourceKey или sourceId либо библиотечного компонента по libraryKey. Родитель задаётся parentKey/parentId; поддержаны variant и componentProperties. При сбое настройки удаляет созданный instance.",
     inputSchema: useComponentInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   },
   async (input) => {
     try {
       const parsed = useComponentSchema.parse(input);
-      const payload = await bridge.execute(buildUseComponentCode(parsed), { fileKey: parsed.fileKey });
-      if (parsed.screenshot && payload.result?.id) {
-        const image = await bridge.captureScreenshot(payload.result.id, {
-          scale: parsed.screenshotScale ?? 1,
-          fileKey: parsed.fileKey,
-        });
-        return okWithImage(payload, image);
-      }
-      return ok(payload);
+      return await runToolOperation(bridge, parsed, buildUseComponentCode(parsed), {
+        screenshotRequested: parsed.screenshot,
+        screenshotNode: (payload) => payload.result?.id,
+      });
     } catch (error) {
       return fail(error);
     }

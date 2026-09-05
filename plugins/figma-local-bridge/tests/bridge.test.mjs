@@ -241,3 +241,67 @@ test("bridge переходит на следующий порт, если ос�
     await new Promise((resolve) => blocker.close(resolve));
   }
 });
+
+function queueBridge() {
+  const bridge = new FigmaBridge({ authToken: AUTH_TOKEN });
+  const files = [
+    { fileKey: "a", currentPageId: "page-a", isActive: true },
+    { fileKey: "b", currentPageId: "page-b", isActive: false },
+  ];
+  bridge.waitForConnection = async () => {};
+  bridge.wsServer = {
+    getConnectedFiles: () => files.map((file) => ({ ...file })),
+    clients: new Map(files.map((file) => [file.fileKey, { ws: {} }])),
+  };
+  return { bridge, files };
+}
+
+test("очередь сохраняет файл и страницу до завершения операции", async () => {
+  const { bridge, files } = queueBridge();
+  let release;
+  let started;
+  const begun = new Promise((resolve) => { started = resolve; });
+  const wait = new Promise((resolve) => { release = resolve; });
+  const events = [];
+  const first = bridge.runInFile("a", async (target) => { events.push("first"); started(); await wait; return target; });
+  await begun;
+  const second = bridge.runInFile("a", async (target) => { events.push("second"); return target; });
+  await Promise.resolve();
+  files[0].isActive = false;
+  files[1].isActive = true;
+  assert.deepEqual(events, ["first"]);
+  release();
+  const expected = { fileKey: "a", pageId: "page-a", expectedSocket: bridge.wsServer.clients.get("a").ws };
+  assert.deepEqual(await first, expected);
+  assert.deepEqual(await second, expected);
+  assert.deepEqual(events, ["first", "second"]);
+  assert.equal(bridge.fileQueues.size, 0);
+});
+
+test("при нескольких файлах запись требует явного fileKey, чтение остаётся доступно", async () => {
+  const { bridge } = queueBridge();
+  await assert.rejects(bridge.runInFile(undefined, () => assert.fail("Запись не должна запускаться"), { requireExplicitFile: true }), /Укажите fileKey/);
+  assert.equal(await bridge.runInFile(undefined, (target) => target.fileKey), "a");
+});
+
+test("ошибка одной команды не блокирует следующую в очереди", async () => {
+  const { bridge } = queueBridge();
+  await assert.rejects(bridge.runInFile("a", () => { throw new Error("Ошибка"); }), /Ошибка/);
+  assert.equal(await bridge.runInFile("a", () => "ok"), "ok");
+});
+
+test("замена socket во время ожидания не перенаправляет команду новому подключению", async () => {
+  const { bridge } = queueBridge();
+  let release;
+  const wait = new Promise((resolve) => { release = resolve; });
+  const first = bridge.runInFile("a", () => wait);
+  await Promise.resolve();
+  await Promise.resolve();
+  const second = bridge.runInFile("a", () => assert.fail("Новый socket не должен получить команду"));
+  await Promise.resolve();
+  bridge.wsServer.clients.set("a", { ws: {} });
+  const rejected = assert.rejects(second, /Подключение файла изменилось/);
+  release();
+  await first;
+  await rejected;
+});

@@ -449,6 +449,21 @@ const patchSetSchema = z
     cornerRadius: z.number().nonnegative().optional(),
     gap: z.number().nonnegative().optional(),
     padding: concretePadding.optional(),
+    layout: z.object({
+      direction: z.enum(["horizontal", "vertical", "none"]).optional(),
+      gap: z.number().nonnegative().optional(),
+      padding: concretePadding.optional(),
+      primaryAlign: z.enum(["start", "center", "end", "space-between"]).optional(),
+      counterAlign: z.enum(["start", "center", "end", "baseline"]).optional(),
+      wrap: z.boolean().optional(),
+    }).strict().optional(),
+    fontFamily: z.string().min(1).optional(),
+    fontWeight: z.string().min(1).optional(),
+    fontSize: z.number().positive().optional(),
+    lineHeight: z.number().positive().optional(),
+    letterSpacing: z.number().optional(),
+    textAlign: z.enum(["left", "center", "right", "justified"]).optional(),
+    clipContent: z.boolean().optional(),
     componentProperties: z.record(z.union([z.string(), z.boolean()])).optional(),
   })
   .strict()
@@ -474,6 +489,7 @@ export const patchNodesInputSchema = {
           }
           if (!value.append) return;
           const keys = new Set();
+          const byKey = new Map(value.append.map((node) => [node.key, node]));
           for (const [index, node] of value.append.entries()) {
             if (keys.has(node.key)) {
               context.addIssue({
@@ -492,6 +508,26 @@ export const patchNodesInputSchema = {
                 path: ["append", index, "parentKey"],
               });
             }
+            const parent = byKey.get(node.parentKey);
+            if (parent && !["frame", "component", "componentSet"].includes(parent.type)) {
+              context.addIssue({ code: z.ZodIssueCode.custom, message: "Родитель append должен быть контейнером", path: ["append", index, "parentKey"] });
+            }
+            if (parent?.type === "componentSet" && node.type !== "component") {
+              context.addIssue({ code: z.ZodIssueCode.custom, message: "Component set может содержать только component-варианты", path: ["append", index, "parentKey"] });
+            }
+            const visited = new Set([node.key]);
+            let cursor = node.parentKey;
+            while (cursor && byKey.has(cursor)) {
+              if (visited.has(cursor)) {
+                context.addIssue({ code: z.ZodIssueCode.custom, message: `Циклическая иерархия append около key: ${node.key}`, path: ["append", index, "parentKey"] });
+                break;
+              }
+              visited.add(cursor);
+              cursor = byKey.get(cursor).parentKey;
+            }
+            if (node.type === "componentSet" && value.append.filter((child) => child.parentKey === node.key).length < 2) {
+              context.addIssue({ code: z.ZodIssueCode.custom, message: "Component set должен содержать минимум два варианта", path: ["append", index] });
+            }
           }
         }),
     )
@@ -502,10 +538,31 @@ export const patchNodesInputSchema = {
   screenshotScale: z.number().min(0.5).max(4).optional(),
   fileKey: z.string().min(1).optional(),
 };
-export const patchNodesSchema = z.object(patchNodesInputSchema).strict();
+export const patchNodesSchema = z.object(patchNodesInputSchema).strict().superRefine((input, context) => {
+  const keys = new Set();
+  for (const [index, patch] of input.patches.entries()) {
+    for (const [childIndex, node] of (patch.append || []).entries()) {
+      if (keys.has(node.key)) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: `Повторяющийся append key в пакете: ${node.key}`, path: ["patches", index, "append", childIndex, "key"] });
+      }
+      keys.add(node.key);
+      // append has no token dictionary; unresolved token objects must not reach Plugin API.
+      function checkTokens(value, path) {
+        if (!value || typeof value !== "object") return;
+        if (typeof value.token === "string") {
+          context.addIssue({ code: z.ZodIssueCode.custom, message: "В append используйте конкретные значения вместо ссылок на токены", path });
+        }
+        for (const [key, child] of Object.entries(value)) checkTokens(child, [...path, key]);
+      }
+      checkTokens(node, ["patches", index, "append", childIndex]);
+    }
+  }
+});
 
 export const inspectSelectionInputSchema = {
   nodeId: z.string().min(1).max(160).optional(),
+  nodeIds: z.array(z.string().min(1).max(160)).min(1).max(50).optional(),
+  detail: z.enum(["compact", "full"]).optional(),
   depth: z.number().int().min(0).max(8).optional(),
   maxNodes: z.number().int().min(1).max(1000).optional(),
   screenshot: z.boolean().optional(),
@@ -513,12 +570,16 @@ export const inspectSelectionInputSchema = {
   includeFiles: z.boolean().optional(),
   fileKey: z.string().min(1).optional(),
 };
-export const inspectSelectionSchema = z.object(inspectSelectionInputSchema).strict();
+export const inspectSelectionSchema = z.object(inspectSelectionInputSchema).strict().refine(
+  (input) => !(input.nodeId && input.nodeIds), "Укажите nodeId или nodeIds, но не оба поля",
+);
 
 export const useComponentInputSchema = {
   sourceKey: keySchema.optional(),
+  sourceId: z.string().min(1).max(160).optional(),
   libraryKey: z.string().min(1).optional(),
   parentKey: keySchema.optional(),
+  parentId: z.string().min(1).max(160).optional(),
   key: keySchema,
   name: nameSchema.optional(),
   variant: z.record(z.string()).optional(),
@@ -533,10 +594,11 @@ export const useComponentSchema = z
   .object(useComponentInputSchema)
   .strict()
   .superRefine((value, context) => {
-    if (Number(Boolean(value.sourceKey)) + Number(Boolean(value.libraryKey)) !== 1) {
+    if ([value.sourceKey, value.sourceId, value.libraryKey].filter(Boolean).length !== 1) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Укажите ровно один источник: sourceKey или libraryKey",
+        message: "Укажите ровно один источник: sourceKey, sourceId или libraryKey",
       });
     }
+    if (value.parentKey && value.parentId) context.addIssue({ code: z.ZodIssueCode.custom, message: "Укажите parentKey или parentId, но не оба поля" });
   });

@@ -260,16 +260,19 @@ export class LocalFigmaWebSocketServer {
     }
   }
 
-  sendCommand(method, params = {}, timeoutMs = 15000, targetFileKey) {
+  sendCommand(method, params = {}, timeoutMs = 15000, targetFileKey, expectedSocket) {
     const fileKey = targetFileKey || this.activeFileKey;
     if (!fileKey) return Promise.reject(new Error("Нет активного файла. Откройте Desktop Bridge в нужном файле Figma."));
     const client = this.clients.get(fileKey);
     if (!client || client.ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error(`Файл Figma не подключён: ${fileKey}`));
+    if (expectedSocket && client.ws !== expectedSocket) return Promise.reject(new Error("Подключение файла изменилось. Повторите чтение макета."));
     const id = `codex_${++this.requestCounter}_${Date.now()}`;
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         this.pendingRequests.delete(id);
-        reject(new Error(`Команда ${method} не завершилась за ${timeoutMs} мс`));
+        const error = new Error(`Команда ${method} не завершилась за ${timeoutMs} мс. Результат неизвестен: проверьте макет перед повтором.`);
+        error.operationStatus = "unknown";
+        reject(error);
       }, timeoutMs);
       this.pendingRequests.set(id, { resolve, reject, timeoutId, fileKey, method, ws: client.ws });
       try {
@@ -287,7 +290,9 @@ export class LocalFigmaWebSocketServer {
     for (const [id, pending] of this.pendingRequests) {
       if (pending.fileKey !== fileKey) continue;
       clearTimeout(pending.timeoutId);
-      pending.reject(new Error(reason));
+      const error = new Error(reason + ". Результат отправленной команды неизвестен.");
+      error.operationStatus = "unknown";
+      pending.reject(error);
       this.pendingRequests.delete(id);
     }
   }
@@ -344,6 +349,7 @@ export class FigmaBridge {
     this.wsServer = null;
     this.port = null;
     this.authToken = resolveAuthToken(authToken);
+    this.fileQueues = new Map();
   }
 
   async start() {
@@ -379,14 +385,46 @@ export class FigmaBridge {
     throw new Error(`Desktop Bridge не подключён к ws://${this.host}:${this.port}. Откройте плагин в целевом файле Figma.`);
   }
 
-  async execute(code, { timeout = 30000, fileKey } = {}) {
+  async runInFile(fileKey, operation, { requireExplicitFile = false } = {}) {
     await this.waitForConnection();
-    const response = await this.wsServer.sendCommand("EXECUTE_CODE", { code, timeout }, timeout + 2000, fileKey);
-    if (!response?.success) throw new Error(response?.error || "Figma Plugin API вернул ошибку");
+    const files = this.wsServer.getConnectedFiles();
+    if (requireExplicitFile && !fileKey && files.length > 1) {
+      throw new Error("Подключено несколько файлов. Укажите fileKey из get_status перед изменением макета.");
+    }
+    const target = files.find((file) => fileKey ? file.fileKey === fileKey : file.isActive);
+    if (!target) throw new Error("Целевой файл Figma не подключён: " + fileKey);
+    const socket = this.wsServer.clients.get(target.fileKey)?.ws;
+    const context = { fileKey: target.fileKey, pageId: target.currentPageId, expectedSocket: socket };
+    const previous = this.fileQueues.get(target.fileKey) || Promise.resolve();
+    const current = previous.catch(() => {}).then(() => {
+      if (this.wsServer.clients.get(target.fileKey)?.ws !== socket) {
+        throw new Error("Подключение файла изменилось в очереди. Повторите чтение макета.");
+      }
+      return operation(context);
+    });
+    this.fileQueues.set(target.fileKey, current);
+    try {
+      return await current;
+    } finally {
+      if (this.fileQueues.get(target.fileKey) === current) this.fileQueues.delete(target.fileKey);
+    }
+  }
+
+  async execute(code, { timeout = 30000, fileKey, pageId, expectedSocket } = {}) {
+    await this.waitForConnection();
+    if (pageId) code = `if (figma.currentPage.id !== ${JSON.stringify(pageId)}) throw new Error("Активная страница изменилась. Повторите чтение макета.");\n` + code;
+    const response = await this.wsServer.sendCommand("EXECUTE_CODE", { code, timeout }, timeout + 2000, fileKey, expectedSocket);
+    if (!response?.success) {
+      const error = new Error(response?.error || "Figma Plugin API вернул ошибку");
+      error.operationStatus = response?.operationStatus || "unknown";
+      error.rollbackErrors = response?.rollbackErrors;
+      throw error;
+    }
+    const targetInfo = this.wsServer.getConnectedFiles().find((file) => file.fileKey === fileKey) || this.wsServer.getConnectedFileInfo();
     return {
       result: response.result,
       resultAnalysis: response.resultAnalysis,
-      fileContext: response.fileContext || this.wsServer.getConnectedFileInfo(),
+      fileContext: { ...targetInfo, ...response.fileContext, fileKey: fileKey || response.fileContext?.fileKey || targetInfo?.fileKey },
     };
   }
 
@@ -405,9 +443,9 @@ export class FigmaBridge {
     return this.wsServer?.getPairingReference() || null;
   }
 
-  async captureScreenshot(nodeId, { scale = 1, fileKey } = {}) {
+  async captureScreenshot(nodeId, { scale = 1, fileKey, expectedSocket } = {}) {
     await this.waitForConnection();
-    const response = await this.wsServer.sendCommand("CAPTURE_SCREENSHOT", { nodeId, format: "PNG", scale }, 30000, fileKey);
+    const response = await this.wsServer.sendCommand("CAPTURE_SCREENSHOT", { nodeId, format: "PNG", scale }, 30000, fileKey, expectedSocket);
     if (!response?.success) throw new Error(response?.error || "Не удалось получить снимок Figma");
     return response.image;
   }
