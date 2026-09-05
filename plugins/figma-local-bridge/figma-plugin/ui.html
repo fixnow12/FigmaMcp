@@ -2454,7 +2454,7 @@
             if (msg.fileContext !== undefined) result.fileContext = msg.fileContext;
             request.resolve(result);
           } else {
-            request.resolve({ success: false, error: msg.error || 'Unknown error' });
+            request.resolve({ success: false, error: msg.error || 'Unknown error', operationStatus: msg.operationStatus, rollbackErrors: msg.rollbackErrors });
           }
           window.__figmaPendingRequests.delete(msg.requestId);
         }

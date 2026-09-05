@@ -466,13 +466,29 @@ async function resolveSlotNode(params) {
 }
 
 // Listen for requests from UI (e.g., component data requests, write operations)
+// Serialize generated operations across all connected local MCP clients.
+// A timeout reports uncertainty, but must not release the lock while code is still running.
+var executeCodeQueue = Promise.resolve();
 figma.ui.onmessage = async (msg) => {
 
   // ============================================================================
   // EXECUTE_CODE - Arbitrary code execution (Power Tool)
   // ============================================================================
   if (msg.type === 'EXECUTE_CODE') {
+    var executionReceivedAt = Date.now();
+    var previousExecution = executeCodeQueue;
+    var releaseExecution;
+    executeCodeQueue = new Promise(function(resolve) { releaseExecution = resolve; });
+    await previousExecution;
+    var executionControl = { cancelled: false };
+    var executionTimer;
     try {
+      var remainingTime = (msg.timeout || 5000) - (Date.now() - executionReceivedAt);
+      if (remainingTime <= 0) {
+        var expiredError = new Error('Operation expired in queue; no changes were applied.');
+        expiredError.operationStatus = 'not_applied';
+        throw expiredError;
+      }
       console.log('🌉 [Desktop Bridge] Executing code, length:', msg.code.length);
 
       // Use eval with async IIFE wrapper instead of AsyncFunction constructor
@@ -486,10 +502,13 @@ figma.ui.onmessage = async (msg) => {
       console.log('🌉 [Desktop Bridge] Wrapped code for eval');
 
       // Execute with timeout
-      var timeoutMs = msg.timeout || 5000;
+      var timeoutMs = remainingTime;
       var timeoutPromise = new Promise(function(_, reject) {
-        setTimeout(function() {
-          reject(new Error('Execution timed out after ' + timeoutMs + 'ms'));
+        executionTimer = setTimeout(function() {
+          executionControl.cancelled = true;
+          var timeoutError = new Error('Execution timed out after ' + timeoutMs + 'ms. Execution may still be running.');
+          timeoutError.operationStatus = 'unknown';
+          reject(timeoutError);
         }, timeoutMs);
       });
 
@@ -581,8 +600,17 @@ figma.ui.onmessage = async (msg) => {
         type: 'EXECUTE_CODE_RESULT',
         requestId: msg.requestId,
         success: false,
-        error: errorName + ': ' + errorMsg
+        error: errorName + ': ' + errorMsg,
+        operationStatus: error.operationStatus || 'unknown',
+        rollbackErrors: error.rollbackErrors || []
       });
+    } finally {
+      if (executionTimer) clearTimeout(executionTimer);
+      try {
+        if (codePromise) await codePromise.catch(function() {});
+      } finally {
+        releaseExecution();
+      }
     }
   }
 
