@@ -370,7 +370,7 @@
       max-height: 160px;
       overflow-y: auto;
       padding: 4px 6px;
-      font-family: 'SF Mono', 'Menlo', Consolas, monospace;
+      font-family: inherit;
       font-size: 10px;
       line-height: 1.4;
     }
@@ -396,8 +396,12 @@
       white-space: nowrap;
     }
     .log-dur {
-      display: none;
+      flex-shrink: 0;
+      opacity: 0.65;
+      font-size: 9px;
     }
+    .log-dur:empty, .log-count:empty { display: none; }
+    .log-msg { white-space: normal; overflow-wrap: anywhere; }
     .log-count {
       flex-shrink: 0;
       opacity: 0.5;
@@ -447,6 +451,11 @@
       --log-error:            #ff8080;
       --log-warn:             #fc0;
     }
+    .operation-panel { margin: 8px 0; padding: 10px 12px; border-radius: 8px; background: var(--figma-color-bg-secondary); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+    .operation-context { color: var(--figma-color-text-secondary); font-size: 11px; }
+    .operation-context:empty { display: none; }
+    #operation-summary[data-state="partial"], #operation-summary[data-state="failed"] { color: var(--log-error); }
+    #operation-summary[data-state="unknown"], #operation-summary[data-state="rolled_back"] { color: var(--log-warn); }
   </style>
 </head>
 <body>
@@ -455,11 +464,11 @@
     <div class="row-top">
       <div class="status-pill">
         <div class="status-indicator loading" id="status-dot" aria-hidden="true"></div>
-        <span id="status-state" role="status" aria-live="polite">Looking for your AI app…</span>
+        <span id="status-state" role="status" aria-live="polite">Ищем подключение…</span>
       </div>
       <!-- CTA starts hidden; the first state reconcile shows it with an honest label -->
       <button class="cta-btn" id="cta-btn" onclick="toggleLocalConnection()" style="display:none">Pause</button>
-      <button class="icon-btn" id="expand-btn" onclick="toggleSubToolbar()" title="Show options" aria-label="Show options" aria-expanded="false">+</button>
+      <button class="icon-btn" id="expand-btn" onclick="toggleSubToolbar()" title="Показать настройки" aria-label="Показать настройки" aria-expanded="false">+</button>
     </div>
 
     <!-- Status meta — connection count + proof of life (shown when connected) -->
@@ -467,15 +476,20 @@
       <span id="status-conn-count"></span>
       <span id="status-last-action"></span>
     </div>
+    <div class="operation-panel" aria-live="polite">
+      <div id="operation-context" class="operation-context"></div>
+      <div id="operation-summary">Ожидание команды</div>
+      <div id="operation-queue" class="operation-context"></div>
+    </div>
 
     <!-- Visible recovery instruction, shown only in the error state -->
-    <div class="status-error-hint" id="status-error-hint">Close this window and reopen the plugin.</div>
+    <div class="status-error-hint" id="status-error-hint">Закройте окно и снова запустите плагин.</div>
 
     <!-- Local MCP pairing. The code includes the exact server port, so it is
          never broadcast to every listener found during discovery. -->
     <div class="row pairing-row local-pair" id="local-pair">
-      <input type="text" id="local-pairing-code" maxlength="80" placeholder="Local pairing code (port:secret)" autocomplete="off" aria-label="Local MCP pairing code" />
-      <button id="local-pair-btn" onclick="window.__wsPairLocal()">Pair</button>
+      <input type="text" id="local-pairing-code" maxlength="80" placeholder="Код сопряжения из чата" autocomplete="off" aria-label="Код сопряжения" />
+      <button id="local-pair-btn" onclick="window.__wsPairLocal()">Подключить</button>
     </div>
     <div class="pairing-status" id="local-pair-status"></div>
 
@@ -492,9 +506,9 @@
           <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
           <circle cx="12" cy="12" r="3"/>
         </svg>
-        Activity
+        Журнал
       </button>
-      <button class="icon-btn" id="copy-log-btn" onclick="copyLogToClipboard()" title="Copy activity to clipboard" aria-label="Copy activity to clipboard" style="display:none">
+      <button class="icon-btn" id="copy-log-btn" onclick="copyLogToClipboard()" title="Скопировать журнал" aria-label="Скопировать журнал" style="display:none">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
           <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
@@ -552,24 +566,24 @@
       var dotClass, text;
       if (bridgeError) {
         dotClass = 'error';
-        text = 'Something broke';
+        text = 'Ошибка подключения';
       } else if (paused) {
         dotClass = 'paused';
-        text = 'Paused — AI can\'t make changes';
+        text = 'Подключение приостановлено';
       } else if (live >= 1) {
         dotClass = 'active';
-        text = 'Connected — AI can work in this file';
+        text = 'Подключено к Figma';
       } else if (pendingLocal >= 1) {
         dotClass = 'loading';
-        text = 'Local pairing required — paste the code from your AI app';
+        text = 'Вставьте код сопряжения из чата';
       } else if (scanning) {
         dotClass = 'loading';
-        text = 'Looking for your AI app…';
+        text = 'Ищем подключение…';
       } else {
         // Defensive fallback: discovery is always on unless paused, so this
         // only renders if the discovery loop is somehow disabled.
         dotClass = '';
-        text = 'Not connected';
+        text = 'Нет подключения';
       }
       dot.className = 'status-indicator' + (dotClass ? ' ' + dotClass : '');
       stateText.textContent = text;
@@ -591,7 +605,7 @@
       if (!meta || !countEl || !lastEl) return;
       var anything = false;
       if (liveCount >= 1) {
-        countEl.textContent = 'Connected to ' + liveCount + ' AI app' + (liveCount === 1 ? '' : 's');
+        countEl.textContent = 'Подключений: ' + liveCount;
         countEl.style.display = '';
         anything = true;
       } else {
@@ -599,7 +613,7 @@
         countEl.style.display = 'none';
       }
       if (liveCount >= 1 && _lastActionAt) {
-        lastEl.textContent = 'Last action: ' + formatAgo(Date.now() - _lastActionAt);
+        lastEl.textContent = 'Команда: ' + formatAgo(Date.now() - _lastActionAt);
         lastEl.style.display = '';
         anything = true;
       } else {
@@ -611,17 +625,17 @@
 
     function formatAgo(ms) {
       var s = Math.max(0, Math.floor(ms / 1000));
-      if (s < 60) return s + 's ago';
+      if (s < 60) return s + ' с назад';
       var m = Math.floor(s / 60);
-      if (m < 60) return m + 'm ago';
+      if (m < 60) return m + ' мин назад';
       var h = Math.floor(m / 60);
-      return h + 'h ago';
+      return h + ' ч назад';
     }
 
     // ============================================================================
     // COMMAND INFRASTRUCTURE - Generic plugin command sender
     // ============================================================================
-    window.sendPluginCommand = (type, params, timeoutMs) => {
+    window.sendPluginCommand = (type, params, timeoutMs, onProgress) => {
       timeoutMs = timeoutMs || 15000;
       return new Promise((resolve, reject) => {
         const requestId = type.toLowerCase() + '_' + (++requestIdCounter) + '_' + Date.now();
@@ -629,11 +643,13 @@
         const timeoutId = setTimeout(() => {
           if (window.__figmaPendingRequests.has(requestId)) {
             window.__figmaPendingRequests.delete(requestId);
-            reject(new Error(type + ' request timed out after ' + timeoutMs + 'ms'));
+            var error = new Error('Истекло время ожидания ответа. Проверьте макет перед повтором.');
+            error.operationStatus = 'unknown';
+            reject(error);
           }
         }, timeoutMs);
 
-        window.__figmaPendingRequests.set(requestId, { resolve: resolve, reject: reject, type: type, timeoutId: timeoutId });
+        window.__figmaPendingRequests.set(requestId, { resolve: resolve, reject: reject, type: type, timeoutId: timeoutId, onProgress: onProgress });
 
         var message = { type: type, requestId: requestId };
         for (var key in params) {
@@ -651,9 +667,9 @@
     // VARIABLE OPERATIONS
     // ============================================================================
 
-    window.executeCode = (code, timeout) => {
-      return window.sendPluginCommand('EXECUTE_CODE', { code: code, timeout: timeout || 5000 }, (timeout || 5000) + 2000)
-        .catch(function(err) { return { success: false, error: err.message || String(err) }; });
+    window.executeCode = (code, timeout, operation) => {
+      return window.sendPluginCommand('EXECUTE_CODE', { code: code, timeout: timeout || 5000, operation: operation }, (timeout || 5000) + 2000)
+        .catch(function(err) { return { success: false, error: err.message || String(err), operationStatus: err.operationStatus || 'unknown' }; });
     };
 
     window.updateVariable = (variableId, modeId, value) => {
@@ -1242,7 +1258,7 @@
 
       // Method-to-function mapping
       var methodMap = {
-        'EXECUTE_CODE': function(params) { return window.executeCode(params.code, params.timeout); },
+        'EXECUTE_CODE': function(params) { return window.executeCode(params.code, params.timeout, params.operation); },
         'UPDATE_VARIABLE': function(params) { return window.updateVariable(params.variableId, params.modeId, params.value); },
         'CREATE_VARIABLE': function(params) { return window.createVariable(params.name, params.collectionId, params.resolvedType, params); },
         'DELETE_VARIABLE': function(params) { return window.deleteVariable(params.variableId); },
@@ -1984,7 +2000,7 @@
     // Fixed 240px width matches Figma right-side nav min.
     // Height grows freely with content. If the plugin extends past Figma's
     // visible UI, the user drags the plugin window to reveal what's clipped.
-    var PLUGIN_WIDTH = 240;
+    var PLUGIN_WIDTH = 360;
 
     function sendResize() {
       // Force a layout pass so measurements reflect the current visible rows.
@@ -2113,17 +2129,17 @@
     }
 
     function escHtml(s) {
-      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
-    function log(message, level, ts) {
+    function log(message, level, ts, independent) {
       level = level || 'info';
       ensureLogRefs();
       if (!logEntriesEl) return;
 
       // Deduplicate: consecutive identical message+level bumps the count badge.
       var last = logEntriesEl.lastElementChild;
-      if (last && last.dataset.logMsg === message && last.dataset.logLevel === level) {
+      if (!independent && last && last.dataset.logMsg === message && last.dataset.logLevel === level) {
         var n = (parseInt(last.dataset.logCount, 10) || 1) + 1;
         last.dataset.logCount = n;
         var tsEl = last.querySelector('.log-ts');
@@ -2150,20 +2166,24 @@
       }
     }
 
-    function logWithHistory(message, level) {
+    function logWithHistory(message, level, independent) {
       level = level || 'info';
       var now = new Date();
       var ts = ('0' + now.getHours()).slice(-2) + ':' +
                ('0' + now.getMinutes()).slice(-2) + ':' +
                ('0' + now.getSeconds()).slice(-2);
-      logHistory.push({ ts: now.toISOString().replace('T', ' ').replace(/\.\d+Z/, ''), level: level, message: message });
-      log(message, level, ts);
+      var item = { ts: now.toISOString().replace('T', ' ').replace(/\.\d+Z/, ''), level: level, message: message };
+      logHistory.push(item);
+      if (logHistory.length > 500) logHistory.shift();
+      log(message, level, ts, independent);
+      return item;
     }
 
     function copyLogToClipboard() {
       var lines = logHistory.map(function(e) {
         var prefix = e.level === 'error' ? '[!]  ' : e.level === 'warn' ? '[WARN]  ' : '';
-        return e.ts + '  ' + prefix + e.message;
+        return e.ts + ' UTC  ' + prefix + e.message + (e.context ? ' | ' + e.context : '')
+          + (e.durationMs !== undefined ? ' | ' + e.durationMs + ' мс' : '');
       });
       var text = 'Figma Desktop Bridge - Session Log\n'
         + 'Exported: ' + new Date().toISOString() + '\n'
@@ -2186,134 +2206,113 @@
       }
     }
 
-    // Smart command summariser: turns raw message types and EXECUTE_CODE
-    // payloads into human-readable log lines.
-    var COMMAND_LABELS = {
-      'GET_FILE_INFO': 'Get file info',
-      'REFRESH_VARIABLES': 'Refresh variables',
-      'GET_LOCAL_COMPONENTS': 'Get local components',
-      'CLEAR_CONSOLE': 'Clear console',
-      'RELOAD_UI': 'Reload UI',
-      'GET_VARIABLES_DATA': 'Get variables data',
-      'RESIZE_UI': null // internal, don't log
+    // Explicit MCP metadata: never infer a user-facing action from generated code.
+    var OPERATION_LABELS = {
+      render_screen: 'Создание экрана', patch_nodes: 'Изменение слоёв',
+      inspect_selection: 'Чтение макета', use_component: 'Вставка экземпляра',
+      clone_nodes: 'Копирование элементов', move_nodes: 'Перенос элементов',
+      find_assets: 'Поиск ресурсов', bind_variables: 'Привязка переменных'
     };
+    var OPERATION_STATES = {
+      queued: 'В очереди', running: 'Выполняется', applied: 'Готово', read: 'Прочитано',
+      not_applied: 'Изменения не применены', rolled_back: 'Изменения отменены',
+      partial: 'Откат неполный', unknown: 'Результат неизвестен', failed: 'Ошибка'
+    };
+    var activeOperations = new Set();
+    var lastOperation = null;
+    var currentFileLabel = '';
+    var currentFileInfo = {};
 
-    var FIGMA_API_PATTERNS = [
-      { re: /figma\.create(\w+)/,           fn: function(m) { return 'Create ' + camelToWords(m[1]); } },
-      { re: /figma\.getNodeByIdAsync/,      fn: function()  { return 'Get node'; } },
-      { re: /figma\.setCurrentPageAsync/,   fn: function()  { return 'Switch page'; } },
-      { re: /figma\.loadFontAsync/,         fn: function()  { return 'Load font'; } },
-      { re: /figma\.loadAllPagesAsync/,     fn: function()  { return 'Load all pages'; } },
-      { re: /figma\.currentPage\.findAll/,  fn: function()  { return 'Find nodes'; } },
-      { re: /figma\.currentPage\.findOne/,  fn: function()  { return 'Find node'; } },
-      { re: /figma\.(union|subtract|intersect|flatten)\b/, fn: function(m) { return 'Boolean ' + m[1]; } },
-      { re: /\.exportAsync/,                fn: function()  { return 'Export'; } },
-      { re: /\.clone\(\)/,                  fn: function()  { return 'Clone node'; } },
-      { re: /\.remove\(\)/,                 fn: function()  { return 'Remove node'; } },
-      { re: /\.appendChild\b/,              fn: function()  { return 'Append child'; } },
-      { re: /\.insertChild\b/,              fn: function()  { return 'Insert child'; } },
-      { re: /\.resize\(/,                   fn: function()  { return 'Resize'; } },
-      { re: /\.characters\s*=/,             fn: function()  { return 'Set text'; } },
-      { re: /\.fills\s*=/,                  fn: function()  { return 'Set fills'; } },
-      { re: /\.strokes\s*=/,                fn: function()  { return 'Set strokes'; } },
-      { re: /\.effects\s*=/,                fn: function()  { return 'Set effects'; } },
-      { re: /combineAsVariants/,            fn: function()  { return 'Combine as variants'; } },
-      { re: /swapComponent/,                fn: function()  { return 'Swap component'; } }
-    ];
-
-    function camelToWords(s) {
-      return s.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
-    }
-
-    function truncate(s, max) {
-      max = max || 60;
-      if (s.length <= max) return s;
-      return s.substring(0, max - 1) + '…';
-    }
-
-    function summariseCommand(type, params) {
-      if (type === 'EXECUTE_CODE' && params && params.code) {
-        var firstLine = params.code.trim().split('\n')[0].trim();
-        if (firstLine.indexOf('//') === 0) {
-          return truncate(firstLine.replace(/^\/\/\s*/, '').replace(/[—–]/g, '-'));
-        }
-        var hits = [];
-        for (var i = 0; i < FIGMA_API_PATTERNS.length; i++) {
-          var m = params.code.match(FIGMA_API_PATTERNS[i].re);
-          if (m) hits.push(FIGMA_API_PATTERNS[i].fn(m));
-        }
-        if (hits.length > 0) {
-          var unique = hits.filter(function(v, i, a) { return a.indexOf(v) === i; });
-          // Drop "Get node" when it appears alongside a more specific operation — it's just boilerplate setup
-          var meaningful = unique.length > 1
-            ? unique.filter(function(v) { return v !== 'Get node'; })
-            : unique;
-          return truncate(meaningful.join(', '));
-        }
-        // No recognisable Figma API pattern — prefix with <Code> so engineers can spot it, then show first line for context
-        var lines = params.code.split('\n');
-        for (var j = 0; j < lines.length; j++) {
-          var line = lines[j].trim();
-          if (line && line.indexOf('//') !== 0 && line.indexOf('/*') !== 0) {
-            return truncate('<Code> ' + line);
-          }
-        }
-        return '<Code>';
+    function operationTitle(type, params) {
+      if (type === 'EXECUTE_CODE') {
+        var name = params && params.operation && params.operation.name;
+        return Object.prototype.hasOwnProperty.call(OPERATION_LABELS, name) ? OPERATION_LABELS[name] : 'Операция Figma';
       }
-      if (COMMAND_LABELS.hasOwnProperty(type)) return COMMAND_LABELS[type];
-      // Fallback: turn "RENAME_VARIABLE" into "Rename variable"
-      return type.replace(/_/g, ' ').toLowerCase().replace(/^\w/, function(c) { return c.toUpperCase(); });
+      return type === 'CAPTURE_SCREENSHOT' ? 'Снимок макета' : null;
     }
 
-    // Wrap sendPluginCommand so every sent command is logged with a human summary and duration.
+    function operationContext(context) {
+      return [context && context.fileName, context && (context.pageName || context.currentPage)]
+        .filter(function(value) { return typeof value === 'string' && value.length; }).join(' · ');
+    }
+
+    function renderOperationStatus() {
+      var active = Array.from(activeOperations);
+      var running = active.find(function(item) { return item.state === 'running'; });
+      var item = running || active[0] || lastOperation;
+      var summary = document.getElementById('operation-summary');
+      var context = document.getElementById('operation-context');
+      var queue = document.getElementById('operation-queue');
+      if (!summary || !context || !queue) return;
+      summary.textContent = item ? item.title + ' — ' + OPERATION_STATES[item.state] : 'Ожидание команды';
+      summary.dataset.state = item ? item.state : 'idle';
+      summary.title = item ? item.context : '';
+      context.textContent = currentFileLabel || (item ? item.context : '');
+      context.title = context.textContent;
+      var queued = active.filter(function(entry) { return entry.state === 'queued'; }).length;
+      queue.textContent = queued ? 'В очереди плагина: ' + queued : '';
+    }
+
+    function updateOperation(entry, state, result) {
+      entry.state = state;
+      var duration = Math.max(0, Date.now() - entry.startedAt);
+      var suffix = state === 'partial' ? '. Проверьте затронутые слои.'
+        : state === 'unknown' ? '. Проверьте макет перед повтором.' : '';
+      var message = entry.title + ' — ' + OPERATION_STATES[state] + suffix;
+      var level = ['partial', 'failed'].includes(state) ? 'error'
+        : ['unknown', 'rolled_back', 'not_applied'].includes(state) ? 'warn'
+        : ['applied', 'read'].includes(state) ? 'success' : 'info';
+      entry.history.message = message;
+      entry.history.level = level;
+      entry.history.context = entry.context;
+      entry.history.durationMs = duration;
+      if (entry.element) {
+        entry.element.className = 'log-entry ' + level;
+        entry.element.dataset.logLevel = level;
+        var text = entry.element.querySelector('.log-msg');
+        if (text) {
+          text.textContent = message;
+          text.title = [message, entry.context, result && result.error].filter(Boolean).join('\n');
+        }
+        var time = entry.element.querySelector('.log-dur');
+        if (time) time.textContent = (duration / 1000).toFixed(1) + ' с';
+      }
+      renderOperationStatus();
+    }
+
+    // Keep one independent row per operation, including simultaneous identical commands.
     var _origSendPluginCommand = window.sendPluginCommand;
     window.sendPluginCommand = function(type, params, timeoutMs) {
-      var summary = summariseCommand(type, params);
-      var durEntry = null;
-      var histIdx = -1;
-      if (summary) {
-        _lastActionAt = Date.now();
-        logWithHistory(summary, 'info');
-        histIdx = logHistory.length - 1;
-        ensureLogRefs();
-        durEntry = logEntriesEl ? logEntriesEl.lastElementChild : null;
+      var title = operationTitle(type, params);
+      if (!title) return _origSendPluginCommand(type, params, timeoutMs);
+      _lastActionAt = Date.now();
+      var context = operationContext(params && params.operation) || currentFileLabel;
+      var history = logWithHistory(title + ' — В очереди', 'info', true);
+      var entry = { title: title, context: context, state: 'queued', startedAt: Date.now(),
+        history: history, element: logEntriesEl && logEntriesEl.lastElementChild };
+      activeOperations.add(entry);
+      updateOperation(entry, 'queued');
+      function finish(result, rejected) {
+        activeOperations.delete(entry);
+        lastOperation = entry;
+        var state = result && result.success && !rejected
+          ? (params && params.operation && params.operation.mutating === false ? 'read' : 'applied')
+          : (result && ['not_applied', 'rolled_back', 'partial', 'unknown'].includes(result.operationStatus)
+            ? result.operationStatus : type === 'EXECUTE_CODE' || rejected ? 'unknown' : 'failed');
+        updateOperation(entry, state, result);
       }
-      var t0 = Date.now();
-      return _origSendPluginCommand(type, params, timeoutMs).then(
-        function(result) {
-          if (durEntry) {
-            var d = durEntry.querySelector('.log-dur');
-            if (d) d.textContent = (Date.now() - t0) + 'ms';
-            if (result && result.success === false) {
-              durEntry.className = durEntry.className.replace(/\b(info|success|warn)\b/, 'error');
-              durEntry.dataset.logLevel = 'error';
-              var m = durEntry.querySelector('.log-msg');
-              if (m && m.textContent.indexOf('[!]') !== 0) m.textContent = '[!] ' + m.textContent;
-              if (histIdx >= 0 && logHistory[histIdx]) {
-                logHistory[histIdx].level = 'error';
-              }
-            }
-          }
-          return result;
-        },
-        function(err) {
-          if (durEntry) {
-            var d = durEntry.querySelector('.log-dur');
-            if (d) d.textContent = (Date.now() - t0) + 'ms';
-            durEntry.className = durEntry.className.replace(/\b(info|success|warn)\b/, 'error');
-            durEntry.dataset.logLevel = 'error';
-            var m = durEntry.querySelector('.log-msg');
-            if (m && m.textContent.indexOf('[!]') !== 0) m.textContent = '[!] ' + m.textContent;
-            if (histIdx >= 0 && logHistory[histIdx]) {
-              logHistory[histIdx].level = 'error';
-              logHistory[histIdx].message = '[!] ' + logHistory[histIdx].message;
-            }
-          }
-          throw err;
-        }
-      );
+      return _origSendPluginCommand(type, params, timeoutMs, function(progress) {
+        if (progress.state !== 'queued' && progress.state !== 'running') return;
+        if (progress.fileContext) entry.context = operationContext(progress.fileContext) || entry.context;
+        updateOperation(entry, progress.state);
+      }).then(function(result) {
+        finish(result, false);
+        return result;
+      }, function(error) {
+        finish(error, true);
+        throw error;
+      });
     };
-
     // Plugin update banner — shown when the server pushes
     // PLUGIN_UPDATE_AVAILABLE over the WebSocket. Dismiss sticks for the
     // session so repeated pushes don't nag.
@@ -2340,24 +2339,25 @@
       ensureLogRefs();
       if (!_ctaBtn) return;
       _ctaBtn.style.display = ''; // markup starts it hidden until first honest state
-      if (state === 'on')            { _ctaBtn.textContent = 'Pause';        _ctaBtn.disabled = false; }
-      else if (state === 'paused')   { _ctaBtn.textContent = 'Resume';       _ctaBtn.disabled = false; }
-      else if (state === 'reconnect'){ _ctaBtn.textContent = 'Try again';    _ctaBtn.disabled = false; }
-      else if (state === 'scanning') { _ctaBtn.textContent = 'Connecting…';  _ctaBtn.disabled = true; }
+      _ctaBtn.dataset.connectionState = state;
+      if (state === 'on')            { _ctaBtn.textContent = 'Пауза';       _ctaBtn.disabled = false; }
+      else if (state === 'paused')   { _ctaBtn.textContent = 'Продолжить';  _ctaBtn.disabled = false; }
+      else if (state === 'reconnect'){ _ctaBtn.textContent = 'Повторить';   _ctaBtn.disabled = false; }
+      else if (state === 'scanning') { _ctaBtn.textContent = 'Поиск…';      _ctaBtn.disabled = true; }
     }
 
     function toggleLocalConnection() {
       ensureLogRefs();
       if (!_ctaBtn) return;
-      var label = _ctaBtn.textContent;
-      if (label === 'Pause') {
+      var state = _ctaBtn.dataset.connectionState;
+      if (state === 'on') {
         if (typeof window.__wsDisconnectAll === 'function') window.__wsDisconnectAll();
         setCtaState('paused');
         deriveAndRenderStatus();
-        logWithHistory('Paused', 'warn');
-      } else if (label === 'Resume' || label === 'Try again') {
+        logWithHistory('Подключение приостановлено', 'warn');
+      } else if (state === 'paused' || state === 'reconnect') {
         setCtaState('scanning');
-        logWithHistory('Looking for your AI app…', 'info');
+        logWithHistory('Ищем подключение…', 'info');
         if (typeof window.__wsManualScan === 'function') window.__wsManualScan();
         else if (typeof window.__wsScanAndConnect === 'function') window.__wsScanAndConnect();
         deriveAndRenderStatus();
@@ -2374,7 +2374,7 @@
             clearInterval(poller);
             setCtaState('reconnect');
             deriveAndRenderStatus();
-            logWithHistory('Couldn\'t find your AI app. Open Claude (or your AI assistant), then press Try again.', 'error');
+            logWithHistory('Подключение не найдено. Откройте приложение с MCP и нажмите «Повторить».', 'error');
           }
         }, 500);
       }
@@ -2392,11 +2392,11 @@
       var n = (typeof window.__wsGetAuthenticatedCount === 'function') ? window.__wsGetAuthenticatedCount() : 0;
       var paused = (typeof window.__wsIsPaused === 'function') ? window.__wsIsPaused() : false;
       if (paused) {
-        if (_ctaBtn.textContent !== 'Resume') setCtaState('paused');
+        if (_ctaBtn.dataset.connectionState !== 'paused') setCtaState('paused');
       } else if (n > 0) {
-        if (_ctaBtn.textContent !== 'Pause') setCtaState('on');
+        if (_ctaBtn.dataset.connectionState !== 'on') setCtaState('on');
       } else {
-        if (_ctaBtn.textContent !== 'Try again') setCtaState('reconnect');
+        if (_ctaBtn.dataset.connectionState !== 'reconnect') setCtaState('reconnect');
       }
       // First reconcile also unhides the button with its honest label.
       if (_ctaBtn.style.display === 'none') _ctaBtn.style.display = '';
@@ -2429,6 +2429,11 @@
     window.onmessage = (event) => {
       const msg = event.data.pluginMessage;
       if (!msg) return;
+      if (msg.type === 'OPERATION_PROGRESS') {
+        const pending = window.__figmaPendingRequests.get(msg.requestId);
+        if (pending && pending.onProgress) pending.onProgress(msg);
+        return;
+      }
 
       // Generic result handler
       const handleResult = (resultType, dataKey) => {
@@ -2707,6 +2712,9 @@
           if (fileInfo && fileInfo.pluginVersion) {
             PLUGIN_VERSION = 'v' + fileInfo.pluginVersion;
           }
+          currentFileInfo = fileInfo || {};
+          currentFileLabel = operationContext(currentFileInfo);
+          renderOperationStatus();
           handleResult('GET_FILE_INFO', 'fileInfo');
           break;
 
@@ -2758,6 +2766,9 @@
 
         // Page change events (for page tracking via WebSocket)
         case 'PAGE_CHANGE':
+          currentFileInfo.currentPage = msg.data.pageName;
+          currentFileLabel = operationContext(currentFileInfo);
+          renderOperationStatus();
           if (window.__wsForwardPageChange) window.__wsForwardPageChange(msg.data);
           break;
       }
