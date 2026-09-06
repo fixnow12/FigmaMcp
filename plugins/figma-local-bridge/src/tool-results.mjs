@@ -8,13 +8,32 @@ export function toolSuccess(payload, image) {
   };
 }
 
+function validationMessage(issues) {
+  const fields = new Map();
+  function visit(issue) {
+    if (issue.code === "invalid_union") {
+      for (const branch of issue.unionErrors) for (const child of branch.issues) visit(child);
+      return;
+    }
+    const path = issue.path.reduce((text, part) => typeof part === "number"
+      ? `${text}[${part}]` : text ? `${text}.${part}` : String(part), "") || "параметры";
+    if (!fields.has(path)) fields.set(path, new Set());
+    fields.get(path).add(issue.message);
+  }
+  issues.forEach(visit);
+  const lines = [...fields].slice(0, 12).map(([path, messages]) => `${path}: ${[...messages].join("; ")}`);
+  if (fields.size > 12) lines.push(`Ещё полей с ошибками: ${fields.size - 12}.`);
+  return `Ошибка параметров:\n${lines.join("\n")}`;
+}
+
 export function toolFailure(error) {
+  const validation = error?.name === "ZodError" && Array.isArray(error.issues);
   const payload = {
-    error: error instanceof Error ? error.message : String(error),
+    error: validation ? validationMessage(error.issues) : error instanceof Error ? error.message : String(error),
     ...(error.operationStatus ? { operationStatus: error.operationStatus } : {}),
     ...(error.rollbackErrors ? { rollbackErrors: error.rollbackErrors } : {}),
   };
-  return { isError: true, content: [{ type: "text", text: JSON.stringify(payload) }], structuredContent: payload };
+  return { isError: true, content: [{ type: "text", text: validation ? payload.error : JSON.stringify(payload) }], structuredContent: payload };
 }
 
 // The write and its optional preview share the same pinned connection target and queue.
