@@ -12,6 +12,7 @@ $ErrorActionPreference = 'Stop'
 $path = $env:FIGMA_PRIVATE_PATH
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $system = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')
+$administrators = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')
 $item = Get-Item -LiteralPath $path -Force
 $acl = $item.GetAccessControl()
 ${set ? `
@@ -25,7 +26,8 @@ foreach ($principal in @($sid, $system)) {
 $item.SetAccessControl($acl)
 $acl = $item.GetAccessControl()
 ` : ''}
-if ($acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'Installation must belong to the current user' }
+$owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+if ($owner -notin @($sid.Value, $system.Value, $administrators.Value)) { throw 'Installation must belong to the current user or administrators' }
 foreach ($rule in $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
   if ($rule.AccessControlType -eq 'Allow' -and $rule.IdentityReference.Value -notin @($sid.Value, $system.Value)) { throw 'Installation permissions are not private' }
 }
