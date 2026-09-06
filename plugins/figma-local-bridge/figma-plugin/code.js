@@ -6,7 +6,7 @@
 
 // Plugin version — sent in FILE_INFO for compatibility checks. It follows the
 // same release number as package.json, .codex-plugin/plugin.json and the MCP server.
-var PLUGIN_VERSION = '0.2.2';
+var PLUGIN_VERSION = '0.3.0';
 
 console.log('🌉 [Desktop Bridge] Plugin loaded (v' + PLUGIN_VERSION + ')');
 

@@ -118,7 +118,7 @@ test("смена страницы обновляет текущий контек
   assert.equal(ui.elements.get("log-entries").children.length, 50);
 });
 
-test("локализованные кнопки паузы и возобновления управляют соединением через состояние", async () => {
+test("локализованные кнопки отключения и подключения управляют соединением через состояние", async () => {
   const ui = await activityUI();
   let paused = false, scans = 0;
   Object.assign(ui.context.window, {
@@ -127,10 +127,10 @@ test("локализованные кнопки паузы и возобновл
     __wsManualScan() { paused = false; scans++; },
   });
   ui.context.reconcileCta();
-  assert.equal(ui.elements.get("cta-btn").textContent, "Пауза");
+  assert.equal(ui.elements.get("cta-btn").textContent, "Отключить");
   ui.context.toggleLocalConnection();
   assert.equal(paused, true);
-  assert.equal(ui.elements.get("cta-btn").textContent, "Продолжить");
+  assert.equal(ui.elements.get("cta-btn").textContent, "Подключить");
   ui.context.toggleLocalConnection();
   assert.equal(scans, 1);
   assert.equal(ui.elements.get("cta-btn").disabled, true);

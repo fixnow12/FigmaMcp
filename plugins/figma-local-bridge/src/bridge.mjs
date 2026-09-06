@@ -1,10 +1,11 @@
 import { createServer as createHttpServer } from "node:http";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
+import secureChannel from './secure-channel.cjs';
 
 const DEFAULT_HOST = process.env.FIGMA_WS_HOST || "127.0.0.1";
 const DEFAULT_PORT = Number(process.env.FIGMA_WS_PORT || 9223);
-const SERVER_VERSION = "0.2.2";
+const SERVER_VERSION = "0.3.0";
 export const LOCAL_AUTH_PROTOCOL = "figma-local-bridge-auth-v1";
 
 function resolveAuthToken(authToken) {
@@ -34,7 +35,8 @@ function isAllowedOrigin(origin) {
 }
 
 export class LocalFigmaWebSocketServer {
-  constructor({ host = DEFAULT_HOST, port = DEFAULT_PORT, authToken } = {}) {
+  constructor({ host = DEFAULT_HOST, port = DEFAULT_PORT, authToken, identity, onMcpConnection } = {}) {
+    if (!['127.0.0.1', '::1'].includes(host)) throw new Error('Bridge разрешён только на loopback');
     this.host = host;
     this.requestedPort = port;
     this.port = null;
@@ -49,6 +51,8 @@ export class LocalFigmaWebSocketServer {
     this.heartbeat = null;
     this.authToken = resolveAuthToken(authToken);
     this.authStates = new WeakMap();
+    this.identity = identity;
+    this.onMcpConnection = onMcpConnection;
   }
 
   handleHttpRequest(request, response) {
@@ -69,7 +73,7 @@ export class LocalFigmaWebSocketServer {
         clients: this.clients.size,
         connectedClients,
         authRequired: true,
-        authProtocol: LOCAL_AUTH_PROTOCOL,
+        authProtocol: this.identity ? secureChannel.protocol : LOCAL_AUTH_PROTOCOL,
         uptime: Math.floor((Date.now() - this.startedAt) / 1000),
       }));
       return;
@@ -84,7 +88,7 @@ export class LocalFigmaWebSocketServer {
     this.httpServer = createHttpServer((request, response) => this.handleHttpRequest(request, response));
     this.wss = new WebSocketServer({
       server: this.httpServer,
-      maxPayload: 100 * 1024 * 1024,
+      maxPayload: (this.identity ? 250 : 100) * 1024 * 1024,
       verifyClient: ({ origin }, accept) => isAllowedOrigin(origin) ? accept(true) : accept(false, 403, "Unauthorized Origin"),
     });
     // ws повторно публикует ошибки общего HTTP-сервера. Постоянный обработчик
@@ -131,6 +135,7 @@ export class LocalFigmaWebSocketServer {
   }
 
   handleConnection(ws) {
+    if (this.identity) return this.handleSecureConnection(ws);
     ws.isAlive = true;
     const challenge = randomBytes(24).toString("base64url");
     this.authStates.set(ws, { authenticated: false, challenge });
@@ -156,6 +161,45 @@ export class LocalFigmaWebSocketServer {
       type: "AUTH_CHALLENGE",
       data: { authProtocol: LOCAL_AUTH_PROTOCOL, port: this.port, challenge },
     }));
+  }
+
+  handleSecureConnection(ws) {
+    ws.isAlive = true;
+    const rawSend = ws.send.bind(ws);
+    let role, mcp;
+    const timer = setTimeout(() => ws.close(4408, 'Authentication timeout'), 5000);
+    timer.unref?.();
+    const secure = secureChannel.create({
+      side: 'server', identity: this.identity, port: this.port,
+      send: message => rawSend(JSON.stringify(message)),
+      onReady: peerRole => {
+        clearTimeout(timer);
+        role = peerRole;
+        if (role === 'plugin') this.authStates.set(ws, { authenticated: true });
+        else if (role === 'mcp') mcp = this.onMcpConnection?.(ws);
+        else ws.close(4403, 'Unsupported role');
+      },
+      onMessage: message => {
+        if (role === 'plugin') this.handleMessage(message, ws);
+        else if (role === 'mcp') mcp?.receive(message);
+      },
+      onError: () => ws.close(4403, 'Secure connection rejected'),
+    });
+    // All existing command/result paths now pass through the encrypted channel.
+    ws.send = value => secure.send(JSON.parse(String(value)));
+    ws.on('pong', () => { ws.isAlive = true; });
+    ws.on('message', raw => {
+      if (!secure.ready && raw.length > 4096) { ws.close(4400, 'Invalid handshake size'); return; }
+      try { secure.receive(JSON.parse(String(raw))); } catch { ws.close(4400, 'Invalid message'); }
+    });
+    ws.on('close', () => {
+      clearTimeout(timer);
+      secure.close();
+      if (role === 'plugin') this.handleDisconnect(ws);
+      mcp?.close();
+    });
+    ws.on('error', () => {});
+    secure.start();
   }
 
   handleMessage(message, ws) {
@@ -308,6 +352,7 @@ export class LocalFigmaWebSocketServer {
   }
 
   getPairingReference() {
+    if (this.identity) return null;
     if (!this.port) return null;
     return `${this.port}:${this.authToken}`;
   }
@@ -343,20 +388,23 @@ export class LocalFigmaWebSocketServer {
 }
 
 export class FigmaBridge {
-  constructor({ host = DEFAULT_HOST, port = DEFAULT_PORT, authToken } = {}) {
+  constructor({ host = DEFAULT_HOST, port = DEFAULT_PORT, authToken, identity, onMcpConnection, portFallback = true } = {}) {
+    this.portFallback = portFallback;
     this.host = host;
     this.preferredPort = port;
     this.wsServer = null;
     this.port = null;
     this.authToken = resolveAuthToken(authToken);
     this.fileQueues = new Map();
+    this.identity = identity;
+    this.onMcpConnection = onMcpConnection;
   }
 
   async start() {
     let lastError;
-    const attempts = this.preferredPort === 0 ? [0] : Array.from({ length: 10 }, (_, index) => this.preferredPort + index);
+    const attempts = (this.preferredPort === 0 || !this.portFallback) ? [this.preferredPort] : Array.from({ length: 10 }, (_, index) => this.preferredPort + index);
     for (const port of attempts) {
-      const candidate = new LocalFigmaWebSocketServer({ port, host: this.host, authToken: this.authToken });
+      const candidate = new LocalFigmaWebSocketServer({ port, host: this.host, authToken: this.authToken, identity: this.identity, onMcpConnection: this.onMcpConnection });
       try {
         await candidate.start();
         this.wsServer = candidate;
@@ -375,7 +423,7 @@ export class FigmaBridge {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (this.wsServer?.isClientConnected()) return this.wsServer.getConnectedFileInfo();
-      if (this.wsServer?.hasPendingAuthentication()) {
+      if (!this.identity && this.wsServer?.hasPendingAuthentication()) {
         throw new Error(
           `Desktop Bridge ждёт локального сопряжения. Вставьте код ${this.wsServer.getPairingReference()} в поле Local pairing в плагине Figma.`,
         );

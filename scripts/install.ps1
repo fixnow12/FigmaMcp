@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $PluginRoot = Join-Path $RepoRoot 'plugins\figma-local-bridge'
-$ManifestPath = Join-Path $PluginRoot 'figma-plugin\manifest.json'
+
 
 function Require-Command([string]$Name) {
   $command = Get-Command $Name -ErrorAction SilentlyContinue
@@ -26,6 +26,8 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'npm ci завершился с ошибкой.' }
   & npm test
   if ($LASTEXITCODE -ne 0) { throw 'Тесты завершились с ошибкой.' }
+  $ManifestPath = & node scripts/prepare-install.mjs
+  if ($LASTEXITCODE -ne 0) { throw 'Не удалось подготовить автоподключение.' }
   & npm run verify
   if ($LASTEXITCODE -ne 0) { throw 'Проверка MCP завершилась с ошибкой.' }
 } finally {
@@ -40,15 +42,11 @@ if (-not $SkipCodex) {
   if ($Codex) {
     Write-Host 'Регистрирую marketplace и плагин Codex...'
     & codex plugin marketplace add $RepoRoot --json
-    if ($LASTEXITCODE -ne 0) {
-      $marketplaces = (& codex plugin marketplace list 2>&1 | Out-String)
-      if ($marketplaces -notmatch 'figma-mcp') { throw 'Не удалось зарегистрировать marketplace Codex.' }
-    }
+    if ($LASTEXITCODE -ne 0) { throw 'Не удалось зарегистрировать marketplace Codex.' }
     & codex plugin add 'figma-local-bridge@figma-mcp' --json
-    if ($LASTEXITCODE -ne 0) {
-      $plugins = (& codex plugin list 2>&1 | Out-String)
-      if ($plugins -notmatch 'figma-local-bridge') { throw 'Не удалось установить плагин Codex.' }
-    }
+    if ($LASTEXITCODE -ne 0) { throw 'Не удалось установить или обновить плагин Codex.' }
+    & node (Join-Path $PluginRoot 'scripts\verify-codex-install.mjs')
+    if ($LASTEXITCODE -ne 0) { throw 'Проверка установленной копии MCP завершилась с ошибкой.' }
   } else {
     Write-Warning 'Codex не найден: его установка пропущена.'
   }
@@ -62,4 +60,4 @@ Write-Host ''
 Write-Host 'Готово.' -ForegroundColor Green
 Write-Host "Импортируйте в Figma Desktop manifest: $ManifestPath"
 Write-Host "OpenCode: $RepoRoot\START_OPENCODE.cmd"
-Write-Host 'После установки или обновления плагина перезапустите Codex.'
+Write-Host 'Перезапустите AI-приложение и откройте Bridge — Auto в Figma. Сопряжение выполнится автоматически.'

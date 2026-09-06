@@ -2,15 +2,17 @@
 export function createMutationSafety(figma) {
   const fonts = new Map();
   const fieldMap = {
+    ...Object.fromEntries(["fills", "strokes", "topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius", "cornerSmoothing", "strokeAlign", "strokeTopWeight", "strokeBottomWeight", "strokeLeftWeight", "strokeRightWeight", "dashPattern", "blendMode", "rotation", "layoutPositioning", "constraints", "minWidth", "maxWidth", "minHeight", "maxHeight", "textAutoResize", "textAlignVertical", "paragraphSpacing", "paragraphIndent"].map(k => [k, k])),
     name: "name", content: "characters", visible: "visible", opacity: "opacity",
     x: "x", y: "y", background: "fills", color: "fills", stroke: "strokes",
     strokeWidth: "strokeWeight", cornerRadius: "cornerRadius", gap: "itemSpacing",
-    fontSize: "fontSize", fontFamily: "fontName", fontWeight: "fontName",
+    fontSize: "fontSize", fontFamily: "fontName", fontStyle: "fontName", fontWeight: "fontName",
     lineHeight: "lineHeight", letterSpacing: "letterSpacing", textAlign: "textAlignHorizontal",
-    clipContent: "clipsContent",
+    textCase: "textCase", textDecoration: "textDecoration",
+    clipContent: "clipsContent", effects: "effects",
   };
-  const textFields = ["content", "color", "fontSize", "fontFamily", "fontWeight", "lineHeight", "letterSpacing", "textAlign"];
-  const layoutFields = ["layoutMode", "itemSpacing", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "primaryAxisAlignItems", "counterAxisAlignItems", "layoutWrap"];
+  const textFields = ["content", "color", "fontSize", "fontFamily", "fontStyle", "fontWeight", "lineHeight", "letterSpacing", "textAlign", "textCase", "textDecoration", "textStyleId", "textRuns", "textAutoResize", "textAlignVertical", "paragraphSpacing", "paragraphIndent", "fills", "fillStyleId"];
+  const layoutFields = ["layoutMode", "itemSpacing", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "primaryAxisAlignItems", "counterAxisAlignItems", "layoutWrap", "counterAxisSpacing", "strokesIncludedInLayout", "itemReverseZIndex"];
   const copy = (value) => value === undefined || typeof value === "symbol" ? value : JSON.parse(JSON.stringify(value));
 
   function loadFont(font) {
@@ -21,7 +23,7 @@ export function createMutationSafety(figma) {
 
   async function prepare(node, value, append) {
     for (const field of Object.keys(value)) {
-      if (textFields.includes(field) && node.type !== "TEXT") throw new Error(field + " поддерживается только для TEXT: " + node.name);
+      if (textFields.includes(field) && !["fills", "fillStyleId"].includes(field) && node.type !== "TEXT") throw new Error(field + " поддерживается только для TEXT: " + node.name);
       const property = fieldMap[field];
       if (property && !(property in node)) throw new Error("Узел не поддерживает " + field + ": " + node.name);
     }
@@ -53,20 +55,26 @@ export function createMutationSafety(figma) {
         if (typeof current.value !== typeof val) throw new Error("Неверный тип свойства компонента: " + key);
       }
     }
-    let nextFont;
-    if (node.type === "TEXT" && (textFields.some((field) => value[field] !== undefined) || value.background !== undefined)) {
-      if (node.fontName === figma.mixed) throw new Error("Смешанные шрифты требуют правки диапазонов: " + node.name);
-      await loadFont(node.fontName);
-      if (value.fontFamily !== undefined || value.fontWeight !== undefined) {
-        nextFont = { family: value.fontFamily ?? node.fontName.family, style: value.fontWeight ?? node.fontName.style };
-        await loadFont(nextFont);
-      }
+    const richTextRequested = node.type === "TEXT" && textFields.some((field) => value[field] !== undefined);
+    if (richTextRequested) {
+      const fontSegments = node.characters.length ? node.getStyledTextSegments(["fontName"]) : [];
+      const currentFonts = fontSegments.length ? fontSegments.map((segment) => segment.fontName) : [node.fontName];
+      for (const font of currentFonts) if (font !== figma.mixed) await loadFont(font);
     }
 
     const fields = new Set(Object.keys(value).map((key) => fieldMap[key]).filter(Boolean));
+    if (richTextRequested) {
+      for (const field of ["characters", "fontName", "fontSize", "fills", "textCase", "textDecoration", "letterSpacing", "lineHeight", "textAlignHorizontal"]) {
+        if (field in node) fields.add(field);
+      }
+    }
+    if (value.effectStyleId !== undefined && "effects" in node) fields.add("effects");
+    if (value.fillStyleId !== undefined) fields.add("fills");
+    if (value.strokeStyleId !== undefined) fields.add("strokes");
+    if (value.cornerRadius !== undefined) for (const field of ["topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius"]) if (field in node) fields.add(field);
     if (value.padding !== undefined) for (const field of layoutFields.slice(2, 6)) fields.add(field);
     if (value.layout !== undefined) for (const field of layoutFields) if (field in node) fields.add(field);
-    const dimensions = value.width !== undefined || value.height !== undefined || value.layout !== undefined || value.padding !== undefined || value.gap !== undefined || value.content !== undefined || value.fontSize !== undefined || value.lineHeight !== undefined || value.letterSpacing !== undefined || nextFont;
+    const dimensions = value.width !== undefined || value.height !== undefined || value.layout !== undefined || value.padding !== undefined || value.gap !== undefined || richTextRequested;
     if (dimensions) {
       for (const field of ["layoutSizingHorizontal", "layoutSizingVertical", "textAutoResize"]) if (field in node) fields.add(field);
     }
@@ -74,20 +82,23 @@ export function createMutationSafety(figma) {
     const sizes = dimensions ? { width: node.width, height: node.height } : null;
     const bindings = copy(node.boundVariables || {});
     const componentProperties = value.componentProperties ? Object.fromEntries(Object.keys(value.componentProperties).map((key) => [key, node.componentProperties[key].value])) : null;
-    const segments = node.type === "TEXT" && node.characters.length && (fields.has("characters") || fields.has("fills") || textFields.some((field) => value[field] !== undefined))
-      ? node.getStyledTextSegments(["fontName", "fontSize", "fills", "textCase", "textDecoration", "letterSpacing", "lineHeight", "hyperlink", "textStyleId", "fillStyleId", "boundVariables"])
+    const segments = node.type === "TEXT" && node.characters.length && richTextRequested
+      ? node.getStyledTextSegments(["fontName", "fontSize", "fills", "textCase", "textDecoration", "letterSpacing", "lineHeight", "paragraphSpacing", "paragraphIndent", "hyperlink", "textStyleId", "fillStyleId", "boundVariables"])
       : [];
     const styles = {};
     if (fields.has("fills") && "fillStyleId" in node && node.fillStyleId !== figma.mixed) styles.fillStyleId = node.fillStyleId;
     if (fields.has("strokes") && "strokeStyleId" in node && node.strokeStyleId !== figma.mixed) styles.strokeStyleId = node.strokeStyleId;
+    if (richTextRequested && "textStyleId" in node && node.textStyleId !== figma.mixed) styles.textStyleId = node.textStyleId;
+    if ((value.effects !== undefined || value.effectStyleId !== undefined) && "effectStyleId" in node && node.effectStyleId !== figma.mixed) styles.effectStyleId = node.effectStyleId;
 
     return {
-      nextFont,
       async restore() {
         const errors = [];
         const attempt = async (label, fn) => { try { await fn(); } catch (error) { errors.push(label + ": " + error.message); } };
         if (node.removed) throw new Error("Узел удалён: " + node.id);
         if (componentProperties) await attempt("componentProperties", () => node.setProperties(componentProperties));
+        if (styles.textStyleId !== undefined) await attempt("textStyleId", () => typeof node.setTextStyleIdAsync === "function" ? node.setTextStyleIdAsync(styles.textStyleId) : (node.textStyleId = styles.textStyleId));
+        if (styles.effectStyleId !== undefined) await attempt("effectStyleId", () => typeof node.setEffectStyleIdAsync === "function" ? node.setEffectStyleIdAsync(styles.effectStyleId) : (node.effectStyleId = styles.effectStyleId));
         // Font and layout must precede characters and sizing.
         for (const field of new Set(["fontName", "layoutMode", ...fields])) {
           if (!(field in values) || values[field] === figma.mixed) continue;
@@ -96,7 +107,7 @@ export function createMutationSafety(figma) {
         for (const segment of segments) {
           if (segment.textStyleId) await attempt("textStyle", () => node.setRangeTextStyleIdAsync(segment.start, segment.end, segment.textStyleId));
           if (segment.fillStyleId) await attempt("fillStyle", () => node.setRangeFillStyleIdAsync(segment.start, segment.end, segment.fillStyleId));
-          for (const field of ["fontName", "fontSize", "fills", "textCase", "textDecoration", "letterSpacing", "lineHeight", "hyperlink"]) {
+          for (const field of ["fontName", "fontSize", "fills", "textCase", "textDecoration", "letterSpacing", "lineHeight", "paragraphSpacing", "paragraphIndent", "hyperlink"]) {
             if (segment[field] === undefined) continue;
             const setter = "setRange" + field[0].toUpperCase() + field.slice(1);
             await attempt(setter, () => node[setter](segment.start, segment.end, copy(segment[field])));
@@ -117,6 +128,7 @@ export function createMutationSafety(figma) {
           }
         }
         for (const [field, id] of Object.entries(styles)) {
+          if (field === "textStyleId" || field === "effectStyleId") continue;
           const setter = field === "fillStyleId" ? "setFillStyleIdAsync" : "setStrokeStyleIdAsync";
           await attempt(field, () => node[setter](id));
         }

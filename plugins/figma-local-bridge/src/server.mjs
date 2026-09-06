@@ -9,6 +9,8 @@ import {
 import { buildCloneCode, buildMoveCode } from "./scene-operations.mjs";
 import { buildFindAssetsCode } from "./asset-catalog.mjs";
 import { buildBindVariablesCode } from "./variable-bindings.mjs";
+import { BrokerClient } from "./broker-client.mjs";
+import { exportAssetsInputSchema, exportAssetsSchema, buildExportAssetsCode } from "./export-assets.mjs";
 import {
   inspectSelectionInputSchema,
   inspectSelectionSchema,
@@ -34,11 +36,17 @@ const instructions =
   "find_assets находит элементы и ресурсы; clone_nodes копирует готовые блоки; move_nodes переносит и переставляет слои; bind_variables привязывает существующие Variables без изменения их значений. " +
   "Перед патчем неизвестного дизайна вызовите inspect_selection. Сервер не принимает произвольный JavaScript.";
 
-const bridge = new FigmaBridge();
+const bridge = process.env.FIGMA_WS_PORT !== undefined
+  ? new FigmaBridge({
+      host: process.env.FIGMA_WS_HOST || "127.0.0.1",
+      port: Number(process.env.FIGMA_WS_PORT),
+      portFallback: false,
+    })
+  : new BrokerClient();
 await bridge.start();
 
 const server = new McpServer(
-  { name: "codex-figma-compact", version: "0.2.2" },
+  { name: "codex-figma-compact", version: "0.3.0" },
   { instructions },
 );
 
@@ -48,8 +56,10 @@ server.registerTool("get_status", {
   inputSchema: {},
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
 }, async () => {
-  const status = bridge.status();
-  if (!status.connected) status.pairingReference = bridge.getPairingReference();
+  const status = await bridge.status();
+  if (!status.connected && typeof bridge.getPairingReference === "function") {
+    status.pairingReference = bridge.getPairingReference();
+  }
   return ok(status);
 });
 
@@ -86,7 +96,7 @@ server.registerTool(
   {
     title: "Изменить узлы",
     description:
-      "Проверяет цели, свойства и шрифты всего пакета до записи. Применяет изменения по key или id, при сбое восстанавливает свойства и сообщает результат отката. Append создаёт новые узлы и не должен автоматически повторяться.",
+      "Проверяет цели, свойства и шрифты всего пакета до записи. Применяет изменения по key или id, включая типографику, textRuns, стили и effects. При сбое восстанавливает свойства и сообщает результат отката; append не должен автоматически повторяться.",
     inputSchema: patchNodesInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   },
@@ -110,28 +120,40 @@ server.registerTool(
   {
     title: "Прочитать выделение",
     description:
-      "Читает выделение, nodeId или nodeIds. Компактное дерево содержит размеры, layout, текст и свойства экземпляров; detail=full добавляет типографику, заливки, стили, переменные и Fill/Hug/Fixed. Опционально прикладывает PNG первого узла.",
+      "Читает выделение, nodeId или nodeIds: размеры, layout, текст и свойства экземпляров; detail=full добавляет точную типографику, textRuns, paints, effects, стили, Variables и Fill/Hug/Fixed. Опционально прикладывает PNG первого узла. includeFiles без fileKey возвращает список подключений.",
     inputSchema: inspectSelectionInputSchema,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
   async (input) => {
     try {
       const parsed = inspectSelectionSchema.parse(input);
+      const connection = parsed.includeFiles ? await bridge.status() : null;
+      if (connection && !parsed.fileKey && connection.files.length !== 1) {
+        return ok({
+          bridge: connection,
+          connectedFiles: connection.files,
+          requiresFileKey: connection.files.length > 1,
+          selectionInspected: false,
+        });
+      }
+      // Pin the same file for inspection and its screenshot, even if another
+      // plugin connects while this request is being processed.
+      const fileKey = parsed.fileKey || connection?.files[0]?.fileKey;
       const operation = {
         ...parsed,
         depth: parsed.depth ?? 3,
         maxNodes: parsed.maxNodes ?? 200,
       };
-      return await runToolOperation(bridge, parsed, buildInspectCode(operation), {
+      return await runToolOperation(bridge, { ...parsed, fileKey }, buildInspectCode(operation), {
         operationName: "inspect_selection",
         mutating: false,
         timeout: 10000,
         screenshotRequested: parsed.screenshot,
         screenshotNode: (payload) => payload.result?.selection?.[0]?.id,
         extendPayload: (payload) => {
-          if (parsed.includeFiles) {
-            payload.bridge = bridge.status();
-            payload.connectedFiles = payload.bridge.files;
+          if (connection) {
+            payload.bridge = connection;
+            payload.connectedFiles = connection.files;
           }
         },
       });
@@ -180,6 +202,13 @@ function registerGeneratedTool(name, config, schema, buildCode, { mutating = tru
   });
 }
 
+registerGeneratedTool("export_assets", {
+  title: "Экспортировать иконки и изображения",
+  description: "Читает только указанные nodeIds: format=svg возвращает SVG для повторной сборки редактируемых иконок и логотипов; format=images — исходные байты IMAGE-заливок и crop/filters. Не экспортируйте целый экран вместо воссоздания слоёв. Ограничивает объём, сообщает пропуски и ошибки. Холст не меняет.",
+  inputSchema: exportAssetsInputSchema,
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+}, exportAssetsSchema, buildExportAssetsCode, { mutating: false });
+
 registerGeneratedTool("clone_nodes", {
   title: "Скопировать элементы",
   description: "Клонирует готовые блоки с сохранением оформления и экземпляров. Назначает новые key всем слоям копий, возвращает соответствие sourceId → id. При ошибке удаляет созданные копии. Не копирует определения компонентов и не меняет их внутреннюю структуру.",
@@ -225,3 +254,5 @@ process.once("SIGTERM", async () => {
 });
 
 await server.connect(transport);
+const onTransportClose = transport.onclose;
+transport.onclose = () => { onTransportClose?.(); void bridge.stop(); };

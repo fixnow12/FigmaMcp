@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fidelityFields, paintsSchema, textFidelityFields } from "./fidelity.mjs";
 
 const keySchema = z.string().min(1).max(160);
 const nameSchema = z.string().min(1).max(240);
@@ -31,10 +32,75 @@ const concretePaddingObject = z.object({
 }).strict();
 const concretePadding = z.union([z.number().nonnegative(), concretePaddingObject]);
 
+// Fresh schemas keep the MCP public description free of shared $ref objects.
+const effectSchema = () => z.object({
+  type: z.enum(["DROP_SHADOW", "INNER_SHADOW", "LAYER_BLUR", "BACKGROUND_BLUR"]),
+  radius: z.number().nonnegative(),
+  color: z.union([
+    z.string().regex(/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/),
+    z.object({ r: z.number().min(0).max(1), g: z.number().min(0).max(1), b: z.number().min(0).max(1), a: z.number().min(0).max(1) }).strict(),
+  ]).optional(),
+  offset: z.object({ x: z.number(), y: z.number() }).strict().optional(),
+  spread: z.number().optional(),
+  visible: z.boolean().optional(),
+  blendMode: z.enum(["NORMAL", "DARKEN", "MULTIPLY", "COLOR_BURN", "LIGHTEN", "SCREEN", "COLOR_DODGE", "OVERLAY", "SOFT_LIGHT", "HARD_LIGHT", "DIFFERENCE", "EXCLUSION", "HUE", "SATURATION", "COLOR", "LUMINOSITY"]).optional(),
+  showShadowBehindNode: z.boolean().optional(),
+  boundVariables: z.record(z.object({ type: z.literal("VARIABLE_ALIAS"), id: z.string().min(1) }).strict()).optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.type.endsWith("SHADOW")) {
+    if (!value.color) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["color"], message: "Для тени нужен color" });
+    if (!value.offset) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["offset"], message: "Для тени нужен offset" });
+  } else if (["color", "offset", "spread", "blendMode", "showShadowBehindNode"].some(key => value[key] !== undefined)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Параметры тени недопустимы для размытия" });
+  }
+  if (value.type === "INNER_SHADOW" && value.showShadowBehindNode !== undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "showShadowBehindNode поддерживается только DROP_SHADOW" });
+  }
+});
+
+const textUnit = (positive = false) => z.object({
+  unit: z.enum(["PIXELS", "PERCENT"]),
+  value: positive ? z.number().positive() : z.number(),
+}).strict();
+
+function typographyFields(mode = "internal") {
+  const numeric = positive => mode === "public"
+    ? publicNumber(positive ? { exclusiveMinimum: 0 } : {})
+    : mode === "concrete" ? (positive ? z.number().positive() : z.number())
+      : positive ? positiveValue : numberValue;
+  return {
+    ...textFidelityFields(),
+    fontFamily: z.string().min(1).optional(),
+    fontStyle: z.string().min(1).optional(),
+    // Backward-compatible name for the actual Figma font style, not a CSS weight.
+    fontWeight: z.string().min(1).optional(),
+    fontSize: numeric(true).optional(),
+    lineHeight: z.union([numeric(true), z.literal("AUTO"), textUnit(true), z.object({ unit: z.literal("AUTO") }).strict()]).optional(),
+    letterSpacing: z.union([numeric(false), textUnit()]).optional(),
+    textCase: z.enum(["ORIGINAL", "UPPER", "LOWER", "TITLE", "SMALL_CAPS", "SMALL_CAPS_FORCED"]).optional(),
+    textDecoration: z.enum(["NONE", "UNDERLINE", "STRIKETHROUGH"]).optional(),
+    textStyleId: z.string().optional(),
+  };
+}
+
+function rangeTypographyFields(mode) {
+  const { textAutoResize: _resize, textAlignVertical: _align, ...fields } = typographyFields(mode);
+  return fields;
+}
+const textRunsSchema = (mode = "internal") => z.array(z.object({
+  start: z.number().int().nonnegative(),
+  end: z.number().int().positive(),
+  ...rangeTypographyFields(mode),
+  fills: paintsSchema().optional(),
+}).strict().refine(run => run.end > run.start, "Пустой диапазон текста")).max(1000);
+
 const layout = z
   .object({
+    counterAxisSpacing: z.number().nonnegative().optional(),
+    strokesIncludedInLayout: z.boolean().optional(),
+    itemReverseZIndex: z.boolean().optional(),
     direction: z.enum(["horizontal", "vertical", "none"]).optional(),
-    gap: nonnegativeValue.optional(),
+    gap: numberValue.optional(),
     padding: padding.optional(),
     primaryAlign: z.enum(["start", "center", "end", "space-between"]).optional(),
     counterAlign: z.enum(["start", "center", "end", "baseline"]).optional(),
@@ -43,6 +109,7 @@ const layout = z
   .strict();
 
 const common = {
+  ...fidelityFields(),
   key: keySchema,
   parentKey: keySchema.optional(),
   order: z.number().int().nonnegative().optional(),
@@ -51,6 +118,8 @@ const common = {
   height: dimension.optional(),
   opacity: unitValue.optional(),
   visible: z.boolean().optional(),
+  effects: z.array(effectSchema()).max(32).optional(),
+  effectStyleId: z.string().optional(),
 };
 
 const containerFields = {
@@ -72,11 +141,8 @@ export const designNodeSchema = z.discriminatedUnion("type", [
       type: z.literal("text"),
       ...common,
       content: z.string(),
-      fontFamily: z.string().min(1).optional(),
-      fontWeight: z.string().min(1).optional(),
-      fontSize: positiveValue.optional(),
-      lineHeight: positiveValue.optional(),
-      letterSpacing: numberValue.optional(),
+      ...typographyFields(),
+      textRuns: textRunsSchema().optional(),
       color: colorValue.optional(),
       textAlign: z.enum(["left", "center", "right", "justified"]).optional(),
     })
@@ -121,6 +187,8 @@ export const designNodeSchema = z.discriminatedUnion("type", [
 
 export const screenSpecBaseSchema = z
   .object({
+    ...fidelityFields(),
+    clipContent: z.boolean().optional(),
     $schema: z.string().optional(),
     key: keySchema,
     name: nameSchema,
@@ -129,6 +197,8 @@ export const screenSpecBaseSchema = z
     height: z.number().positive(),
     background: colorValue.optional(),
     cornerRadius: nonnegativeValue.optional(),
+    effects: z.array(effectSchema()).max(32).optional(),
+    effectStyleId: z.string().optional(),
     layout: layout.optional(),
     tokens: z
       .object({
@@ -168,8 +238,11 @@ const publicPadding = () => z.union([
   }).strict(),
 ]);
 const publicLayout = () => z.object({
+  counterAxisSpacing: z.number().nonnegative().optional(),
+  strokesIncludedInLayout: z.boolean().optional(),
+  itemReverseZIndex: z.boolean().optional(),
   direction: z.enum(["horizontal", "vertical", "none"]).optional(),
-  gap: publicNumber({ minimum: 0 }).optional(),
+  gap: publicNumber().optional(),
   padding: publicPadding().optional(),
   primaryAlign: z.enum(["start", "center", "end", "space-between"]).optional(),
   counterAlign: z.enum(["start", "center", "end", "baseline"]).optional(),
@@ -177,6 +250,7 @@ const publicLayout = () => z.object({
 }).strict();
 
 const publicDesignNodeSchema = z.object({
+  ...fidelityFields(),
   type: z.enum(["frame", "component", "componentSet", "text", "rectangle", "ellipse", "image", "svg"]),
   key: z.string().min(1).max(160),
   parentKey: z.string().min(1).max(160).optional(),
@@ -186,6 +260,8 @@ const publicDesignNodeSchema = z.object({
   height: publicDimension().optional(),
   opacity: publicNumber({ minimum: 0, maximum: 1 }).optional(),
   visible: z.boolean().optional(),
+  effects: z.array(effectSchema()).max(32).optional(),
+  effectStyleId: z.string().optional(),
   background: publicColor().optional(),
   fill: publicColor().optional(),
   stroke: publicColor().optional(),
@@ -194,11 +270,8 @@ const publicDesignNodeSchema = z.object({
   clipContent: z.boolean().optional(),
   layout: publicLayout().optional(),
   content: z.string().optional(),
-  fontFamily: z.string().min(1).optional(),
-  fontWeight: z.string().min(1).optional(),
-  fontSize: publicNumber({ exclusiveMinimum: 0 }).optional(),
-  lineHeight: publicNumber({ exclusiveMinimum: 0 }).optional(),
-  letterSpacing: publicNumber().optional(),
+  ...typographyFields("public"),
+  textRuns: textRunsSchema("public").optional(),
   color: publicColor().optional(),
   textAlign: z.enum(["left", "center", "right", "justified"]).optional(),
   data: z.string().min(1).max(30_000_000).optional(),
@@ -209,6 +282,8 @@ const publicDesignNodeSchema = z.object({
 }).strict();
 
 export const screenSpecPublicSchema = z.object({
+  ...fidelityFields(),
+  clipContent: z.boolean().optional(),
   $schema: z.string().optional(),
   key: z.string().min(1).max(160),
   name: z.string().min(1).max(240),
@@ -217,6 +292,8 @@ export const screenSpecPublicSchema = z.object({
   height: z.number().positive(),
   background: publicColor().optional(),
   cornerRadius: publicNumber({ minimum: 0 }).optional(),
+  effects: z.array(effectSchema()).max(32).optional(),
+  effectStyleId: z.string().optional(),
   layout: publicLayout().optional(),
   tokens: z.object({
     colors: z.array(z.object({ name: z.string().min(1), value: z.string() }).strict()).optional(),
@@ -397,6 +474,12 @@ export function adaptPublicScreenSpec(spec) {
       fontSize: publicTokenValue(node.fontSize),
       lineHeight: publicTokenValue(node.lineHeight),
       letterSpacing: publicTokenValue(node.letterSpacing),
+      textRuns: node.textRuns?.map(run => ({
+        ...run,
+        fontSize: publicTokenValue(run.fontSize),
+        lineHeight: publicTokenValue(run.lineHeight),
+        letterSpacing: publicTokenValue(run.letterSpacing),
+      })),
       color: publicTokenValue(node.color),
       variant: node.variant ? Object.fromEntries(node.variant.map(({ property, value }) => [property, value])) : undefined,
     }));
@@ -434,8 +517,14 @@ export function parseRenderScreenInput(input) {
 
 const patchSetSchema = z
   .object({
+    ...fidelityFields(),
     name: nameSchema.optional(),
     content: z.string().optional(),
+    ...typographyFields("concrete"),
+    textRuns: textRunsSchema("concrete").optional(),
+    textAlign: z.enum(["left", "center", "right", "justified"]).optional(),
+    effects: z.array(effectSchema()).max(32).optional(),
+    effectStyleId: z.string().optional(),
     width: concreteDimension.optional(),
     height: concreteDimension.optional(),
     x: z.number().optional(),
@@ -447,23 +536,20 @@ const patchSetSchema = z
     stroke: hexColor.optional(),
     strokeWidth: z.number().nonnegative().optional(),
     cornerRadius: z.number().nonnegative().optional(),
-    gap: z.number().nonnegative().optional(),
+    gap: z.number().optional(),
+    clipContent: z.boolean().optional(),
     padding: concretePadding.optional(),
     layout: z.object({
+      counterAxisSpacing: z.number().nonnegative().optional(),
+      strokesIncludedInLayout: z.boolean().optional(),
+      itemReverseZIndex: z.boolean().optional(),
       direction: z.enum(["horizontal", "vertical", "none"]).optional(),
-      gap: z.number().nonnegative().optional(),
+      gap: z.number().optional(),
       padding: concretePadding.optional(),
       primaryAlign: z.enum(["start", "center", "end", "space-between"]).optional(),
       counterAlign: z.enum(["start", "center", "end", "baseline"]).optional(),
       wrap: z.boolean().optional(),
     }).strict().optional(),
-    fontFamily: z.string().min(1).optional(),
-    fontWeight: z.string().min(1).optional(),
-    fontSize: z.number().positive().optional(),
-    lineHeight: z.number().positive().optional(),
-    letterSpacing: z.number().optional(),
-    textAlign: z.enum(["left", "center", "right", "justified"]).optional(),
-    clipContent: z.boolean().optional(),
     componentProperties: z.record(z.union([z.string(), z.boolean()])).optional(),
   })
   .strict()
