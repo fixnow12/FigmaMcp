@@ -464,7 +464,7 @@
     <div class="row-top">
       <div class="status-pill">
         <div class="status-indicator loading" id="status-dot" aria-hidden="true"></div>
-        <span id="status-state" role="status" aria-live="polite">Ищем подключение…</span>
+        <span id="status-state" role="status" aria-live="polite">Ожидаем обращение AI…</span>
       </div>
       <!-- CTA starts hidden; the first state reconcile shows it with an honest label -->
       <button class="cta-btn" id="cta-btn" onclick="toggleLocalConnection()" style="display:none">Pause</button>
@@ -485,12 +485,6 @@
     <!-- Visible recovery instruction, shown only in the error state -->
     <div class="status-error-hint" id="status-error-hint">Закройте окно и снова запустите плагин.</div>
 
-    <!-- Local MCP pairing. The code includes the exact server port, so it is
-         never broadcast to every listener found during discovery. -->
-    <div class="row pairing-row local-pair" id="local-pair">
-      <input type="text" id="local-pairing-code" maxlength="80" placeholder="Код сопряжения из чата" autocomplete="off" aria-label="Код сопряжения" />
-      <button id="local-pair-btn" onclick="window.__wsPairLocal()">Подключить</button>
-    </div>
     <div class="pairing-status" id="local-pair-status"></div>
 
     <!-- Plugin update banner (shown when the server reports a newer plugin) -->
@@ -522,6 +516,7 @@
     </div>
   </div>
 
+  <!-- LOCAL_SECURE_BOOTSTRAP -->
   <script>
     // ============================================================================
     // GLOBAL STATE — backing store for the in-iframe WebSocket bridge client
@@ -569,16 +564,16 @@
         text = 'Ошибка подключения';
       } else if (paused) {
         dotClass = 'paused';
-        text = 'Подключение приостановлено';
+        text = 'Отключено — доступ AI закрыт';
       } else if (live >= 1) {
         dotClass = 'active';
-        text = 'Подключено к Figma';
+        text = 'Подключено — AI может работать с файлом';
       } else if (pendingLocal >= 1) {
         dotClass = 'loading';
-        text = 'Вставьте код сопряжения из чата';
+        text = 'Проверяем защищённое подключение…';
       } else if (scanning) {
         dotClass = 'loading';
-        text = 'Ищем подключение…';
+        text = 'Ожидаем обращение AI…';
       } else {
         // Defensive fallback: discovery is always on unless paused, so this
         // only renders if the discovery loop is somehow disabled.
@@ -1030,19 +1025,16 @@
 
     // ============================================================================
     // WEBSOCKET BRIDGE CLIENT — primary transport from the plugin sandbox to
-    // the MCP server. Scans port range 9223–9232 for multiple instances.
+    // the MCP server. Scans port range 9223–9233 for multiple instances.
     // ============================================================================
     (function() {
       // Port range for multi-instance support (matches server's port-discovery.ts)
-      var WS_PORT_RANGE_START = 9223;
-      var WS_PORT_RANGE_END = 9232;
+      var WS_PORT_RANGE_START = 9233;
+      var WS_PORT_RANGE_END = 9233;
 
-      // Multi-connection state: plugin connects to ALL active MCP servers
-      // so that every Claude tab/CLI instance gets Figma access.
+      // One authenticated broker owns all AI session routing.
       var activeConnections = []; // Array of { port, ws, authenticated, challenge?, serverVersion?, serverInfo? }
       var isScanning = false;
-      var LOCAL_AUTH_PROTOCOL = 'figma-local-bridge-auth-v1';
-      var localPairingTokens = {}; // Ephemeral, in-memory only; indexed by the exact server port.
 
       // Backward-compat: ws and wsConnected reflect "at least one connection"
       var ws = null;
@@ -1057,146 +1049,6 @@
         return !!(conn && conn.authenticated === true && conn.ws && conn.ws.readyState === 1);
       }
 
-      function asciiBytes(value) {
-        var bytes = new Uint8Array(value.length);
-        for (var i = 0; i < value.length; i++) bytes[i] = value.charCodeAt(i);
-        return bytes;
-      }
-
-      function bytesToBase64Url(bytes) {
-        var binary = '';
-        for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-      }
-
-      // Figma's plugin UI can run in an opaque iframe where crypto.subtle is
-      // intentionally unavailable. Keep the authenticated local bridge usable
-      // there with a small, self-contained SHA-256/HMAC implementation.
-      function rotateRight32(value, shift) {
-        return (value >>> shift) | (value << (32 - shift));
-      }
-
-      function sha256Bytes(input) {
-        var constants = [
-          0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-          0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-          0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-          0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-          0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-          0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-          0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-          0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
-        ];
-        var state = [
-          0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-          0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
-        ];
-        var bitLength = input.length * 8;
-        var paddedLength = Math.ceil((input.length + 9) / 64) * 64;
-        var padded = new Uint8Array(paddedLength);
-        padded.set(input);
-        padded[input.length] = 0x80;
-        var highBits = Math.floor(bitLength / 0x100000000);
-        var lowBits = bitLength >>> 0;
-        for (var lengthIndex = 0; lengthIndex < 4; lengthIndex++) {
-          padded[paddedLength - 8 + lengthIndex] = (highBits >>> (24 - lengthIndex * 8)) & 0xff;
-          padded[paddedLength - 4 + lengthIndex] = (lowBits >>> (24 - lengthIndex * 8)) & 0xff;
-        }
-
-        var words = new Uint32Array(64);
-        for (var offset = 0; offset < padded.length; offset += 64) {
-          for (var wordIndex = 0; wordIndex < 16; wordIndex++) {
-            var byteIndex = offset + wordIndex * 4;
-            words[wordIndex] = ((padded[byteIndex] << 24) | (padded[byteIndex + 1] << 16) |
-              (padded[byteIndex + 2] << 8) | padded[byteIndex + 3]) >>> 0;
-          }
-          for (var scheduleIndex = 16; scheduleIndex < 64; scheduleIndex++) {
-            var prior15 = words[scheduleIndex - 15];
-            var prior2 = words[scheduleIndex - 2];
-            var sigma0 = rotateRight32(prior15, 7) ^ rotateRight32(prior15, 18) ^ (prior15 >>> 3);
-            var sigma1 = rotateRight32(prior2, 17) ^ rotateRight32(prior2, 19) ^ (prior2 >>> 10);
-            words[scheduleIndex] = (words[scheduleIndex - 16] + sigma0 + words[scheduleIndex - 7] + sigma1) >>> 0;
-          }
-
-          var a = state[0];
-          var b = state[1];
-          var c = state[2];
-          var d = state[3];
-          var e = state[4];
-          var f = state[5];
-          var g = state[6];
-          var h = state[7];
-          for (var round = 0; round < 64; round++) {
-            var bigSigma1 = rotateRight32(e, 6) ^ rotateRight32(e, 11) ^ rotateRight32(e, 25);
-            var choose = (e & f) ^ (~e & g);
-            var temp1 = (h + bigSigma1 + choose + constants[round] + words[round]) >>> 0;
-            var bigSigma0 = rotateRight32(a, 2) ^ rotateRight32(a, 13) ^ rotateRight32(a, 22);
-            var majority = (a & b) ^ (a & c) ^ (b & c);
-            var temp2 = (bigSigma0 + majority) >>> 0;
-            h = g;
-            g = f;
-            f = e;
-            e = (d + temp1) >>> 0;
-            d = c;
-            c = b;
-            b = a;
-            a = (temp1 + temp2) >>> 0;
-          }
-          state[0] = (state[0] + a) >>> 0;
-          state[1] = (state[1] + b) >>> 0;
-          state[2] = (state[2] + c) >>> 0;
-          state[3] = (state[3] + d) >>> 0;
-          state[4] = (state[4] + e) >>> 0;
-          state[5] = (state[5] + f) >>> 0;
-          state[6] = (state[6] + g) >>> 0;
-          state[7] = (state[7] + h) >>> 0;
-        }
-
-        var output = new Uint8Array(32);
-        for (var stateIndex = 0; stateIndex < state.length; stateIndex++) {
-          output[stateIndex * 4] = state[stateIndex] >>> 24;
-          output[stateIndex * 4 + 1] = state[stateIndex] >>> 16;
-          output[stateIndex * 4 + 2] = state[stateIndex] >>> 8;
-          output[stateIndex * 4 + 3] = state[stateIndex];
-        }
-        return output;
-      }
-
-      function hmacSha256Bytes(key, message) {
-        var blockSize = 64;
-        var normalizedKey = key.length > blockSize ? sha256Bytes(key) : key;
-        var innerPad = new Uint8Array(blockSize);
-        var outerPad = new Uint8Array(blockSize);
-        for (var i = 0; i < blockSize; i++) {
-          var keyByte = i < normalizedKey.length ? normalizedKey[i] : 0;
-          innerPad[i] = keyByte ^ 0x36;
-          outerPad[i] = keyByte ^ 0x5c;
-        }
-        var innerInput = new Uint8Array(blockSize + message.length);
-        innerInput.set(innerPad);
-        innerInput.set(message, blockSize);
-        var innerHash = sha256Bytes(innerInput);
-        var outerInput = new Uint8Array(blockSize + innerHash.length);
-        outerInput.set(outerPad);
-        outerInput.set(innerHash, blockSize);
-        return sha256Bytes(outerInput);
-      }
-
-      function createLocalAuthProof(token, role, port, challenge) {
-        var keyBytes = asciiBytes(token);
-        var message = LOCAL_AUTH_PROTOCOL + ':' + role + ':' + port + ':' + challenge;
-        if (!window.crypto || !window.crypto.subtle) {
-          return Promise.resolve(bytesToBase64Url(hmacSha256Bytes(keyBytes, asciiBytes(message))));
-        }
-        return window.crypto.subtle.importKey(
-          'raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-        ).then(function(key) {
-          return window.crypto.subtle.sign('HMAC', key, asciiBytes(message));
-        }).then(function(signature) {
-          return bytesToBase64Url(new Uint8Array(signature));
-        });
-      }
-
       function setLocalPairingStatus(text, isError) {
         var status = document.getElementById('local-pair-status');
         if (status) {
@@ -1206,55 +1058,8 @@
       }
 
       function updateLocalPairingUI() {
-        var pending = activeConnections.filter(function(conn) {
-          return conn.ws.readyState === 1 && conn.authenticated !== true;
-        });
-        var row = document.getElementById('local-pair');
-        if (row) row.classList.toggle('visible', pending.length > 0);
-        if (pending.length === 0) setLocalPairingStatus('', false);
         if (typeof autoResize === 'function') autoResize();
       }
-
-      function authenticateLocalConnection(conn, token) {
-        if (!conn || !conn.challenge || conn.authenticating || conn.authenticated) return;
-        conn.authenticating = true;
-        conn.pendingToken = token;
-        setLocalPairingStatus('Local: verifying…', false);
-        createLocalAuthProof(token, 'client', conn.port, conn.challenge)
-          .then(function(proof) {
-            if (conn.ws.readyState !== 1) throw new Error('Local server disconnected');
-            conn.ws.send(JSON.stringify({
-              type: 'AUTH_RESPONSE',
-              data: { authProtocol: LOCAL_AUTH_PROTOCOL, proof: proof }
-            }));
-          })
-          .catch(function(error) {
-            conn.authenticating = false;
-            conn.pendingToken = null;
-            setLocalPairingStatus('Local: ' + error.message, true);
-          });
-      }
-
-      window.__wsPairLocal = function() {
-        var input = document.getElementById('local-pairing-code');
-        var raw = input ? input.value.trim() : '';
-        var match = /^(\d{4,5}):([A-Za-z0-9_-]{32,})$/.exec(raw);
-        if (!match) {
-          setLocalPairingStatus('Local: paste the full port:secret code from your AI app', true);
-          return;
-        }
-        var port = Number(match[1]);
-        var token = match[2];
-        var conn = activeConnections.find(function(candidate) {
-          return candidate.port === port && candidate.ws.readyState === 1 && candidate.authenticated !== true;
-        });
-        if (!conn) {
-          localPairingTokens[port] = token;
-          setLocalPairingStatus('Local: waiting for server on port ' + port + '…', false);
-          return;
-        }
-        authenticateLocalConnection(conn, token);
-      };
 
       // Method-to-function mapping
       var methodMap = {
@@ -1517,6 +1322,10 @@
       var userPaused = false;
 
       function wsScanAndConnect() {
+        if (!window.__FIGMA_LOCAL_IDENTITY__) {
+          setLocalPairingStatus('Запустите установщик и импортируйте Bridge — Auto.', true);
+          return;
+        }
         if (isScanning) return;
         isScanning = true;
 
@@ -1656,96 +1465,42 @@
        * Attach message/close/error handlers to an established WebSocket connection.
        */
       function attachWsHandlers(activeWs, port) {
+        var conn = connectionForSocket(activeWs);
+        if (!window.__FIGMA_LOCAL_IDENTITY__ || !window.FigmaSecureChannel) {
+          setLocalPairingStatus('Запустите установщик и импортируйте персональный Bridge — Auto.', true);
+          activeWs.close(4403, 'Installation required');
+          return;
+        }
+        var rawSend = activeWs.send.bind(activeWs);
+        var authTimer = setTimeout(function() { activeWs.close(4408, 'Authentication timeout'); }, 5000);
+        var secure = window.FigmaSecureChannel.create({
+          side: 'client', identity: window.__FIGMA_LOCAL_IDENTITY__, port: port,
+          send: function(message) { rawSend(JSON.stringify(message)); },
+          onReady: function() {
+            clearTimeout(authTimer);
+            if (activeWs.readyState !== 1 || userPaused) { activeWs.close(); return; }
+            conn.authenticated = true;
+            setLocalPairingStatus('', false);
+            updateCompatState();
+            updateLocalPairingUI();
+            initializeConnection(activeWs, port);
+          },
+          onMessage: handleApplicationMessage,
+          onError: function() {
+            if (activeWs.readyState !== 1) return;
+            conn.authenticated = false;
+            setLocalPairingStatus('Подключение не прошло проверку. Перезапустите Bridge или повторите установку.', true);
+            activeWs.close(4403, 'Secure connection rejected');
+          }
+        });
+        activeWs.send = function(value) { secure.send(JSON.parse(value)); };
         activeWs.onmessage = function(event) {
+          try { secure.receive(JSON.parse(event.data)); }
+          catch (error) { activeWs.close(4400, 'Invalid message'); }
+        };
+        function handleApplicationMessage(message) {
           try {
-            var message = JSON.parse(event.data);
-            var conn = connectionForSocket(activeWs);
-
-            if (message.type === 'AUTH_CHALLENGE' && message.data) {
-              var challengePort = Number(message.data.port);
-              var validChallenge = message.data.authProtocol === LOCAL_AUTH_PROTOCOL &&
-                challengePort === Number(port) &&
-                typeof message.data.challenge === 'string' &&
-                /^[A-Za-z0-9_-]{32,}$/.test(message.data.challenge);
-              if (!conn || !validChallenge) {
-                activeWs.close(4401, 'Invalid authentication challenge');
-                return;
-              }
-              conn.challenge = message.data.challenge;
-              conn.authenticating = false;
-              updateLocalPairingUI();
-              if (localPairingTokens[port]) authenticateLocalConnection(conn, localPairingTokens[port]);
-              return;
-            }
-
-            if (message.type === 'AUTH_OK' && message.data) {
-              if (!conn || !conn.challenge || !conn.pendingToken ||
-                  message.data.authProtocol !== LOCAL_AUTH_PROTOCOL || Number(message.data.port) !== Number(port)) {
-                activeWs.close(4401, 'Unexpected authentication response');
-                return;
-              }
-              var verifiedToken = conn.pendingToken;
-              createLocalAuthProof(verifiedToken, 'server', port, conn.challenge)
-                .then(function(expectedProof) {
-                  if (message.data.proof !== expectedProof) throw new Error('Server identity proof did not match');
-                  conn.authenticated = true;
-                  conn.authenticating = false;
-                  conn.pendingToken = null;
-                  conn.serverInfo = message.data;
-                  if (message.data.serverVersion) conn.serverVersion = message.data.serverVersion;
-                  localPairingTokens[port] = verifiedToken;
-                  var input = document.getElementById('local-pairing-code');
-                  if (input) input.value = '';
-                  setLocalPairingStatus('Local: paired securely', false);
-                  updateCompatState();
-                  updateLocalPairingUI();
-                  console.log('[MCP Bridge] Authenticated local server on port ' + port);
-                  initializeConnection(activeWs, port);
-                })
-                .catch(function(error) {
-                  conn.authenticating = false;
-                  conn.pendingToken = null;
-                  delete localPairingTokens[port];
-                  setLocalPairingStatus('Local: ' + error.message, true);
-                  activeWs.close(4403, 'Server authentication failed');
-                });
-              return;
-            }
-
-            if (message.type === 'AUTH_ERROR') {
-              if (conn) {
-                conn.authenticating = false;
-                conn.pendingToken = null;
-              }
-              delete localPairingTokens[port];
-              var authError = message.data && message.data.error ? message.data.error : 'Authentication failed';
-              setLocalPairingStatus('Local: ' + authError, true);
-              return;
-            }
-
-            // Old plugin versions use the pre-auth compatibility banner. This
-            // version already understands local auth and ignores that one
-            // specific notice; every other update notice requires auth below.
-            if (message.type === 'PLUGIN_UPDATE_AVAILABLE' &&
-                message.data && message.data.reason === 'local-auth-required') return;
-
-            // Handle server identity messages
-            if (message.type === 'SERVER_HELLO' && message.data) {
-              if (!isAuthenticatedConnection(conn)) return;
-              console.log('[MCP Bridge] Connected to server on port ' + message.data.port + ' (PID: ' + message.data.pid + ', v' + message.data.serverVersion + ')');
-              if (conn) {
-                conn.serverInfo = message.data;
-                if (message.data.serverVersion) conn.serverVersion = message.data.serverVersion;
-              }
-              return;
-            }
-
-            // No application message is accepted until the server has proved
-            // possession of the exact port-scoped pairing secret.
-            if (!isAuthenticatedConnection(conn)) {
-              if (message.id || message.method) activeWs.close(4401, 'Authentication required');
-              return;
-            }
+            if (!isAuthenticatedConnection(conn)) return;
 
             if (message.type === 'PLUGIN_UPDATE_AVAILABLE') {
               if (typeof showUpdateBanner === 'function') showUpdateBanner();
@@ -1781,8 +1536,10 @@
         };
 
         activeWs.onclose = function(event) {
-          if (event.code === 4403) delete localPairingTokens[port];
-          removeConnection(port);
+          clearTimeout(authTimer);
+          conn.authenticated = false;
+          secure.close();
+          if (connectionForSocket(activeWs)) removeConnection(port);
           console.log('[MCP Bridge] WebSocket disconnected from port ' + port + ' (' + activeConnections.length + ' server(s) remaining)');
 
           // If replaced by same file reconnecting (e.g., plugin reloaded), stop
@@ -1903,7 +1660,7 @@
       window.__wsIsPaused = function() { return userPaused; };
       window.__wsIsScanning = function() { return isScanning; };
       // The health discovery loop is armed whenever the user hasn't paused —
-      // used by the status pill to show "Looking for your AI app…" honestly.
+      // used by the status pill to show "Ожидаем обращение AI…" honestly.
       window.__wsIsDiscoveryActive = function() { return !userPaused; };
 
       // ======================================================================
@@ -1960,7 +1717,7 @@
 
       function runDiscoveryPass() {
         if (discoveryInFlight) { scheduleDiscovery(); return; }
-        if (userPaused) { scheduleDiscovery(); return; } // never auto-connect while paused
+        if (userPaused || !window.__FIGMA_LOCAL_IDENTITY__) { scheduleDiscovery(); return; }
         var candidates = [];
         for (var p = WS_PORT_RANGE_START; p <= WS_PORT_RANGE_END; p++) {
           if (!isPortConnected(p)) candidates.push(p);
@@ -2115,7 +1872,7 @@
     // STAGE 2 — LOG PANEL, INFO PANEL, CONNECTION, CLIPBOARD EXPORT
     // ============================================================================
 
-    var PLUGIN_VERSION = 'v0.2.2';
+    var PLUGIN_VERSION = 'v0.3.0';
     var logHistory = [];
     var logEntriesEl = null;
     var _ctaBtn = null;
@@ -2340,10 +2097,10 @@
       if (!_ctaBtn) return;
       _ctaBtn.style.display = ''; // markup starts it hidden until first honest state
       _ctaBtn.dataset.connectionState = state;
-      if (state === 'on')            { _ctaBtn.textContent = 'Пауза';       _ctaBtn.disabled = false; }
-      else if (state === 'paused')   { _ctaBtn.textContent = 'Продолжить';  _ctaBtn.disabled = false; }
-      else if (state === 'reconnect'){ _ctaBtn.textContent = 'Повторить';   _ctaBtn.disabled = false; }
-      else if (state === 'scanning') { _ctaBtn.textContent = 'Поиск…';      _ctaBtn.disabled = true; }
+      if (state === 'on')            { _ctaBtn.textContent = 'Отключить';        _ctaBtn.disabled = false; }
+      else if (state === 'paused')   { _ctaBtn.textContent = 'Подключить';       _ctaBtn.disabled = false; }
+      else if (state === 'reconnect'){ _ctaBtn.textContent = 'Подключить';    _ctaBtn.disabled = false; }
+      else if (state === 'scanning') { _ctaBtn.textContent = 'Подключаем…';  _ctaBtn.disabled = true; }
     }
 
     function toggleLocalConnection() {
@@ -2354,10 +2111,10 @@
         if (typeof window.__wsDisconnectAll === 'function') window.__wsDisconnectAll();
         setCtaState('paused');
         deriveAndRenderStatus();
-        logWithHistory('Подключение приостановлено', 'warn');
+        logWithHistory('Доступ AI отключён', 'warn');
       } else if (state === 'paused' || state === 'reconnect') {
         setCtaState('scanning');
-        logWithHistory('Ищем подключение…', 'info');
+        logWithHistory('Ожидаем обращение AI…', 'info');
         if (typeof window.__wsManualScan === 'function') window.__wsManualScan();
         else if (typeof window.__wsScanAndConnect === 'function') window.__wsScanAndConnect();
         deriveAndRenderStatus();
@@ -2374,7 +2131,7 @@
             clearInterval(poller);
             setCtaState('reconnect');
             deriveAndRenderStatus();
-            logWithHistory('Подключение не найдено. Откройте приложение с MCP и нажмите «Повторить».', 'error');
+            logWithHistory('Откройте AI-приложение и попросите проверить Figma. Bridge подключится автоматически.', 'error');
           }
         }, 500);
       }

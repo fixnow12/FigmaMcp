@@ -12,3 +12,4 @@ migration-backup/
 *.token
 *.pem
 *.key
+/Плагин Figma

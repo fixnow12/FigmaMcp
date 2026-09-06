@@ -61,7 +61,9 @@ async function scan(directory) {
       await scan(path);
       continue;
     }
-    if (binaryExtensions.has(extname(entry.name).toLowerCase())) continue;
+    // Local shortcuts can point outside the repository (including the personal
+    // Figma installation). Inspect regular source files, never follow symlinks.
+    if (!entry.isFile() || binaryExtensions.has(extname(entry.name).toLowerCase())) continue;
     const content = await readFile(path, 'utf8');
     if (content.includes('C:\\Codex\\Figma')) findings.push(`${path}: абсолютный путь рабочей машины`);
     if (content.includes('[TO' + 'DO')) findings.push(`${path}: незаполненный TODO`);

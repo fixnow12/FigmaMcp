@@ -1,6 +1,5 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,64 +14,14 @@ test("inline-скрипт plugin UI синтаксически корректе�
   assert.doesNotThrow(() => new vm.Script(inlineScript));
 });
 
-test("plugin UI не инициализирует локальный WebSocket до mutual auth", async () => {
+test("plugin UI не содержит ручного сопряжения и направляет команды через защищённый канал", async () => {
   const source = await readFile(resolve(root, "figma-plugin", "ui.html"), "utf8");
-
-  const initialOpenStart = source.indexOf("testWs.onopen = function()", source.indexOf("function wsScanAndConnect"));
-  const initialOpenEnd = source.indexOf("testWs.onerror = function()", initialOpenStart);
-  const initialOpen = source.slice(initialOpenStart, initialOpenEnd);
-  assert.ok(initialOpenStart >= 0 && initialOpenEnd > initialOpenStart);
-  assert.equal(initialOpen.includes("initializeConnection(testWs"), false);
-
-  const authOkStart = source.indexOf("if (message.type === 'AUTH_OK'");
-  const authOkEnd = source.indexOf("if (message.type === 'AUTH_ERROR'", authOkStart);
-  const authOk = source.slice(authOkStart, authOkEnd);
-  assert.match(authOk, /createLocalAuthProof\(verifiedToken, 'server'/);
-  assert.ok(authOk.indexOf("conn.authenticated = true") > authOk.indexOf("message.data.proof !== expectedProof"));
-  assert.ok(authOk.indexOf("initializeConnection(activeWs, port)") > authOk.indexOf("conn.authenticated = true"));
-
-  const broadcastStart = source.indexOf("function broadcastToAll(message)");
-  const broadcastEnd = source.indexOf("window.__wsForwardVariables", broadcastStart);
-  assert.match(source.slice(broadcastStart, broadcastEnd), /isAuthenticatedConnection\(conn\)/);
-
-  const unauthenticatedGate = source.indexOf("if (!isAuthenticatedConnection(conn))", authOkEnd);
-  const updateNotice = source.indexOf("if (message.type === 'PLUGIN_UPDATE_AVAILABLE')", unauthenticatedGate);
-  const handlerLookup = source.indexOf("var handler = methodMap[message.method]", unauthenticatedGate);
-  assert.ok(updateNotice > unauthenticatedGate, "update notice must not be trusted before authentication");
-  assert.ok(handlerLookup > unauthenticatedGate, "privileged method dispatch must remain behind authentication");
-});
-
-test("plugin UI вычисляет совместимый HMAC без crypto.subtle", async () => {
-  const source = await readFile(resolve(root, "figma-plugin", "ui.html"), "utf8");
-  const helperStart = source.indexOf("function asciiBytes(value)");
-  const helperEnd = source.indexOf("function setLocalPairingStatus", helperStart);
-  assert.ok(helperStart >= 0 && helperEnd > helperStart);
-
-  const token = "local_pairing_test_token_0000000000";
-  const role = "client";
-  const port = 9223;
-  const challenge = "abcdefghijklmnopqrstuvwxyzABCDEFG";
-  const protocol = "figma-local-bridge-auth-v1";
-  const context = {
-    Uint8Array,
-    Uint32Array,
-    Promise,
-    Math,
-    window: {},
-    btoa(value) {
-      return Buffer.from(value, "binary").toString("base64");
-    },
-  };
-  vm.runInNewContext(
-    `var LOCAL_AUTH_PROTOCOL = ${JSON.stringify(protocol)};\n${source.slice(helperStart, helperEnd)}`,
-    context,
-  );
-
-  const actual = await context.createLocalAuthProof(token, role, port, challenge);
-  const expected = createHmac("sha256", token)
-    .update(`${protocol}:${role}:${port}:${challenge}`)
-    .digest("base64url");
-  assert.equal(actual, expected);
+  assert.doesNotMatch(source, /local-pairing-code|__wsPairLocal|localPairingTokens/);
+  assert.match(source, /LOCAL_SECURE_BOOTSTRAP/);
+  assert.match(source, /window\.FigmaSecureChannel\.create/);
+  assert.match(source, /activeWs\.send = function\(value\) \{ secure\.send/);
+  assert.match(source, /secure\.receive\(JSON\.parse\(event\.data\)\)/);
+  assert.match(source, /if \(!isAuthenticatedConnection\(conn\)\) return/);
 });
 
 test("Figma plugin разрешает только локальные сетевые адреса", async () => {

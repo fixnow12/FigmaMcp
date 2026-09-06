@@ -18,7 +18,7 @@ test("MCP публикует типизированные схемы без unkn
     env: {
       ...process.env,
       FIGMA_WS_HOST: "127.0.0.1",
-      FIGMA_WS_PORT: "9230",
+      FIGMA_WS_PORT: "0",
       LOG_LEVEL: "silent",
     },
     stderr: "pipe",
@@ -27,9 +27,15 @@ test("MCP публикует типизированные схемы без unkn
   try {
     await client.connect(transport);
     const { tools } = await client.listTools();
+    function checkArrays(schema, path) {
+      if (!schema || typeof schema !== "object") return;
+      assert.equal(Array.isArray(schema.items), false, `${path}: tuple-style items скрывает инструмент в MCP-клиентах`);
+      for (const [key, value] of Object.entries(schema)) checkArrays(value, `${path}.${key}`);
+    }
+    for (const tool of tools) checkArrays(tool.inputSchema, tool.name);
     assert.deepEqual(
       tools.map((tool) => tool.name).sort(),
-      ["bind_variables", "clone_nodes", "find_assets", "get_status", "inspect_selection", "move_nodes", "patch_nodes", "render_screen", "use_component"],
+      ["bind_variables", "clone_nodes", "export_assets", "find_assets", "get_status", "inspect_selection", "move_nodes", "patch_nodes", "render_screen", "use_component"],
     );
 
     const render = tools.find((tool) => tool.name === "render_screen");
@@ -46,6 +52,10 @@ test("MCP публикует типизированные схемы без unkn
     );
     assert.equal(spec.properties.tokens.type, "object");
     assert.equal(JSON.stringify(render.inputSchema).includes('"$ref"'), false);
+    assert.equal(spec.properties.nodes.items.properties.fontStyle.type, "string");
+    assert.equal(spec.properties.nodes.items.properties.textRuns.type, "array");
+    assert.equal(spec.properties.effects.type, "array");
+    assert.equal(spec.properties.nodes.items.properties.effects.type, "array");
 
     const useComponent = tools.find((tool) => tool.name === "use_component");
     assert.ok(

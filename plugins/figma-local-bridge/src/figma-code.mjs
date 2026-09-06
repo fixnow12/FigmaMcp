@@ -1,4 +1,5 @@
 import { createMutationSafety } from "./mutation-safety.mjs";
+import { createFidelityRuntime } from "./fidelity.mjs";
 
 const DATA_KEY = "codex-spec-key";
 
@@ -10,6 +11,7 @@ function literal(value) {
 const helpers = `
 const DATA_KEY = ${JSON.stringify(DATA_KEY)};
 const operationPage = figma.currentPage;
+const fidelity = (${createFidelityRuntime.toString()})(figma);
 function checkOperation() {
   if (typeof executionControl !== "undefined" && executionControl.cancelled) {
     throw new Error("Время операции истекло; дальнейшие изменения остановлены");
@@ -67,6 +69,7 @@ function applyLayout(node, value) {
     baseline: "BASELINE",
   }[layout.counterAlign || "start"];
   if ("layoutWrap" in node) node.layoutWrap = layout.wrap ? "WRAP" : "NO_WRAP";
+  for (const field of ["counterAxisSpacing", "strokesIncludedInLayout", "itemReverseZIndex"]) if (layout[field] !== undefined) node[field] = layout[field];
 }
 
 function applyVisual(node, item) {
@@ -96,8 +99,151 @@ function applyDimension(node, axis, value) {
   else node.resize(node.width, value);
 }
 
+function sizeSvg(node, item) {
+  const ratio = typeof item.width === "number" ? item.width / node.width : typeof item.height === "number" ? item.height / node.height : 1;
+  if (typeof item.width === "number" && typeof item.height === "number" && Math.abs(node.height * ratio - item.height) > 0.1) {
+    throw new Error("SVG требует пропорциональные размеры: " + item.name);
+  }
+  if (ratio !== 1) node.rescale(ratio);
+}
+
+const fontLoads = new Map();
+let availableFonts;
+async function loadExactFont(font) {
+  const key = JSON.stringify(font);
+  if (!fontLoads.has(key)) fontLoads.set(key, (async () => {
+    try {
+      await figma.loadFontAsync(font);
+      return font;
+    } catch (error) {
+      // Accept spelling differences only, never substitute another weight/family.
+      if (typeof figma.listAvailableFontsAsync !== "function") {
+        throw new Error("Шрифт недоступен: «" + font.family + " / " + font.style + "»");
+      }
+      availableFonts ||= figma.listAvailableFontsAsync();
+      const normalize = value => value.toLowerCase().replace(/[\\s_-]/g, "");
+      const matches = (await availableFonts).map(item => item.fontName).filter(item =>
+        item.family === font.family && normalize(item.style) === normalize(font.style));
+      if (matches.length === 1) {
+        await figma.loadFontAsync(matches[0]);
+        return matches[0];
+      }
+      throw new Error("Недоступен шрифт «" + font.family + " / " + font.style + "». Установите его или явно укажите другое начертание. Regular автоматически не подставляется.");
+    }
+  })());
+  return fontLoads.get(key);
+}
+
+function textMetric(value) {
+  if (typeof value === "number") return { unit: "PIXELS", value };
+  return value === "AUTO" ? { unit: "AUTO" } : value;
+}
+
+function sameValue(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+
+async function styleFont(id) {
+  if (!id) return null;
+  const style = await figma.getStyleByIdAsync(id);
+  if (!style || style.type !== "TEXT") throw new Error("Не найден текстовый стиль: " + id);
+  return loadExactFont(style.fontName);
+}
+
+const textFields = ["fontSize", "lineHeight", "letterSpacing", "textCase", "textDecoration", "paragraphSpacing", "paragraphIndent"];
+async function applyText(node, item, creating = false) {
+  const requested = ["content", "fontFamily", "fontStyle", "fontWeight", "textStyleId", "textRuns", "textAlign", "textAlignVertical", "textAutoResize", "color", ...textFields];
+  if (!creating && !requested.some(field => item[field] !== undefined)) return;
+  if (node.type !== "TEXT") throw new Error("Типографика поддерживается только для TEXT: " + node.name);
+  const content = item.content ?? node.characters;
+  const segments = node.characters.length ? node.getStyledTextSegments(["fontName"]) : [];
+  const currentFonts = segments.length ? segments.map(segment => segment.fontName) : [node.fontName];
+  for (const font of currentFonts) await loadExactFont(font);
+
+  const runs = item.textRuns || [];
+  let previousEnd = 0;
+  for (const run of runs) {
+    if (run.start < previousEnd || run.end <= run.start || run.end > content.length) {
+      throw new Error("Диапазоны textRuns должны идти по порядку, не пересекаться и помещаться в текст: " + node.name);
+    }
+    previousEnd = run.end;
+  }
+  if (!creating && item.content !== undefined && item.content !== node.characters &&
+      node.getStyledTextSegments(["fontName", ...textFields, "textStyleId", "fills"]).length > 1 && !item.textRuns) {
+    throw new Error("У текста смешанное оформление. Для замены content передайте textRuns с диапазонами нового текста: " + node.name);
+  }
+  const fromStyle = await styleFont(item.textStyleId);
+  const explicitFont = item.fontFamily !== undefined || item.fontStyle !== undefined || item.fontWeight !== undefined;
+  const bases = fromStyle ? [fromStyle] : creating ? [{ family: "Inter", style: "Regular" }] : currentFonts;
+  const fonts = await Promise.all(bases.map(font => loadExactFont({
+    family: item.fontFamily ?? font.family,
+    style: item.fontStyle ?? item.fontWeight ?? font.style,
+  })));
+  const preparedRuns = [];
+  for (const run of runs) {
+    const runStyle = await styleFont(run.textStyleId);
+    let font = null;
+    if (run.fontFamily !== undefined || run.fontStyle !== undefined || run.fontWeight !== undefined) {
+      const base = runStyle || fonts[0];
+      font = await loadExactFont({ family: run.fontFamily ?? base.family, style: run.fontStyle ?? run.fontWeight ?? base.style });
+    }
+    preparedRuns.push({ run, font });
+  }
+
+  // All fonts and ranges are validated before changing the text.
+  if (item.textStyleId !== undefined) await node.setTextStyleIdAsync(item.textStyleId);
+  if ((creating && !item.textStyleId) || explicitFont) {
+    if (fonts.every(font => font.family === fonts[0].family && font.style === fonts[0].style)) {
+      if (!sameValue(node.fontName, fonts[0])) node.fontName = fonts[0];
+    }
+    else for (let i = 0; i < segments.length; i++) node.setRangeFontName(segments[i].start, segments[i].end, fonts[i]);
+  }
+  if (item.content !== undefined) node.characters = item.content;
+  for (const field of textFields) {
+    if (item[field] !== undefined) {
+      const value = ["lineHeight", "letterSpacing"].includes(field) ? textMetric(item[field]) : item[field];
+      if (!sameValue(node[field], value)) node[field] = value;
+    }
+  }
+  if (creating && !item.textStyleId && item.fontSize === undefined) node.fontSize = 14;
+  if (item.color !== undefined || (creating && item.fills === undefined && item.fillStyleId === undefined)) node.fills = [paint(item.color || "#111827")];
+  if (item.textAlign !== undefined) node.textAlignHorizontal = item.textAlign.toUpperCase();
+  if (item.textAlignVertical !== undefined) node.textAlignVertical = item.textAlignVertical;
+  if (item.textAutoResize !== undefined) node.textAutoResize = item.textAutoResize;
+  for (const { run, font } of preparedRuns) {
+    if (run.textStyleId !== undefined) await node.setRangeTextStyleIdAsync(run.start, run.end, run.textStyleId);
+    if (font && !sameValue(node.getRangeFontName(run.start, run.end), font)) node.setRangeFontName(run.start, run.end, font);
+    for (const field of textFields) if (run[field] !== undefined) {
+      const method = "setRange" + field[0].toUpperCase() + field.slice(1);
+      const value = ["lineHeight", "letterSpacing"].includes(field) ? textMetric(run[field]) : run[field];
+      if (!sameValue(node["getRange" + field[0].toUpperCase() + field.slice(1)](run.start, run.end), value)) node[method](run.start, run.end, value);
+    }
+  }
+}
+
+async function applyEffects(node, item) {
+  if (item.effects === undefined && item.effectStyleId === undefined) return;
+  if (!("effects" in node)) throw new Error("Этот узел не поддерживает эффекты: " + node.name);
+  if (item.effectStyleId !== undefined) await node.setEffectStyleIdAsync(item.effectStyleId);
+  if (item.effects !== undefined) {
+    const effects = item.effects.map(effect => {
+    const value = { ...effect, visible: effect.visible ?? true };
+    if (effect.type.endsWith("SHADOW")) {
+      if (typeof effect.color === "string") {
+        const parsed = rgba(effect.color);
+        value.color = { ...parsed.color, a: parsed.opacity };
+      }
+      value.blendMode = effect.blendMode || "NORMAL";
+      value.spread = effect.spread ?? 0;
+    }
+    return value;
+    });
+    if (!sameValue(node.effects, effects)) node.effects = effects;
+  }
+}
+
 function findByKey(key) {
-  const matches = operationPage.findAll((node) => node.getPluginData?.(DATA_KEY) === key);
+  const matches = [...new Map(
+    operationPage.findAll().filter((node) => node.getPluginData?.(DATA_KEY) === key).map((node) => [node.id, node]),
+  ).values()];
   if (matches.length > 1) throw new Error("Ключ неоднозначен, используйте id: " + key);
   return matches[0] || null;
 }
@@ -114,20 +260,28 @@ const spec = ${literal(spec)};
 const options = ${literal({ replace, sectionName, position })};
 let createdSection = null;
 const created = [];
-const loadedFonts = new Map();
-const previousSelection = [...operationPage.selection];
-
-async function loadFont(family, style) {
-  const font = { family, style };
-  const key = JSON.stringify(font);
-  if (!loadedFonts.has(key)) loadedFonts.set(key, figma.loadFontAsync(font));
-  await loadedFonts.get(key);
-  checkOperation();
-  return font;
-}
+const previousSelection = [...(operationPage.selection || [])];
 
 async function prepareFonts(item) {
-  if (item.type === "text") await loadFont(item.fontFamily || "Inter", item.fontWeight || "Regular");
+  await fidelity.validate(item);
+  if (item.type === "text") {
+    const styleFontName = item.textStyleId ? await styleFont(item.textStyleId) : null;
+    const base = styleFontName || { family: "Inter", style: "Regular" };
+    const resolvedBase = await loadExactFont({
+      family: item.fontFamily ?? base.family,
+      style: item.fontStyle ?? item.fontWeight ?? base.style,
+    });
+    for (const run of item.textRuns || []) {
+      const runStyle = run.textStyleId ? await styleFont(run.textStyleId) : null;
+      if (run.fontFamily !== undefined || run.fontStyle !== undefined || run.fontWeight !== undefined) {
+        const runBase = runStyle || resolvedBase;
+        await loadExactFont({
+          family: run.fontFamily ?? runBase.family,
+          style: run.fontStyle ?? run.fontWeight ?? runBase.style,
+        });
+      }
+    }
+  }
   for (const child of item.children || []) await prepareFonts(child);
 }
 
@@ -145,11 +299,15 @@ async function build(item, parent) {
     set.name = item.name;
     set.setPluginData(DATA_KEY, item.key);
     applyLayout(set, item.layout);
+    set.clipsContent = item.clipContent ?? false;
     applyVisual(set, item);
+    await applyEffects(set, item);
+    await fidelity.apply(set, item);
     if (typeof item.width === "number") set.resize(item.width, set.height);
     if (typeof item.height === "number") set.resize(set.width, item.height);
     applyDimension(set, "width", item.width);
     applyDimension(set, "height", item.height);
+    fidelity.position(set, item);
     return set;
   }
 
@@ -157,16 +315,9 @@ async function build(item, parent) {
   if (item.type === "text") {
     node = figma.createText();
     created.push(node);
-    const font = await loadFont(item.fontFamily || "Inter", item.fontWeight || "Regular");
-    node.fontName = font;
-    node.characters = item.content;
-    node.fontSize = item.fontSize || 14;
-    node.fills = [paint(item.color || "#111827")];
-    if (item.lineHeight) node.lineHeight = { unit: "PIXELS", value: item.lineHeight };
-    if (item.letterSpacing !== undefined) node.letterSpacing = { unit: "PIXELS", value: item.letterSpacing };
-    if (item.textAlign) node.textAlignHorizontal = item.textAlign.toUpperCase();
-    if (typeof item.width === "number") node.textAutoResize = "HEIGHT";
-    else node.textAutoResize = "WIDTH_AND_HEIGHT";
+    parent.appendChild(node);
+    await applyText(node, item, true);
+    node.textAutoResize = item.textAutoResize ?? (item.width !== undefined && item.width !== "hug" ? "HEIGHT" : "WIDTH_AND_HEIGHT");
   } else if (item.type === "rectangle") {
     node = figma.createRectangle();
   } else if (item.type === "ellipse") {
@@ -185,19 +336,27 @@ async function build(item, parent) {
     node = figma.createNodeFromSvg(item.svg);
   } else if (item.type === "component") {
     node = figma.createComponent();
+    node.fills = [];
     created.push(node);
     applyLayout(node, item.layout);
+    node.clipsContent = item.clipContent ?? false;
   } else {
     node = figma.createFrame();
+    node.fills = [];
     created.push(node);
     applyLayout(node, item.layout);
+    node.clipsContent = item.clipContent ?? false;
   }
 
   if (!created.includes(node)) created.push(node);
   node.name = item.type === "component" ? variantName(item.variant, item.name) : item.name;
   node.setPluginData(DATA_KEY, item.key);
-  applyVisual(node, item);
   parent.appendChild(node);
+  applyVisual(node, item);
+  await applyEffects(node, item);
+  await fidelity.apply(node, item);
+
+  if (item.type === "svg") sizeSvg(node, item);
 
   if (typeof item.width === "number") node.resize(item.width, node.height);
   if (typeof item.height === "number") node.resize(node.width, item.height);
@@ -208,6 +367,7 @@ async function build(item, parent) {
 
   applyDimension(node, "width", item.width);
   applyDimension(node, "height", item.height);
+  fidelity.position(node, item);
   return node;
 }
 
@@ -229,12 +389,14 @@ try {
 
   const root = figma.createFrame();
   created.push(root);
+  createdSection.appendChild(root);
   root.name = spec.name;
   root.setPluginData(DATA_KEY, spec.key);
   root.resize(spec.width, spec.height);
   applyLayout(root, spec.layout);
   applyVisual(root, spec);
-  createdSection.appendChild(root);
+  await applyEffects(root, spec);
+  await fidelity.apply(root, spec);
 
   for (const child of spec.children || []) await build(child, root);
   root.resize(spec.width, spec.height);
@@ -300,11 +462,30 @@ for (const { patch, node } of resolved) {
   let page = node;
   while (page && page.type !== "PAGE") page = page.parent;
   if (page !== operationPage) throw new Error("Узел находится на другой странице: " + node.id);
+  await fidelity.validate(patch.set || {}, node);
   prepared.push({ patch, node, snapshot: await safety.prepare(node, patch.set || {}, patch.append) });
   for (const item of patch.append || []) {
+    await fidelity.validate(item);
     if (appendKeys.has(item.key) || findByKey(item.key)) throw new Error("Узел с ключом уже существует: " + item.key);
     appendKeys.add(item.key);
-    if (item.type === "text") await safety.loadFont({ family: item.fontFamily || "Inter", style: item.fontWeight || "Regular" });
+    if (item.type === "text") {
+      const styleFontName = item.textStyleId ? await styleFont(item.textStyleId) : null;
+      const base = styleFontName || { family: "Inter", style: "Regular" };
+      const resolvedBase = await loadExactFont({
+        family: item.fontFamily ?? base.family,
+        style: item.fontStyle ?? item.fontWeight ?? base.style,
+      });
+      for (const run of item.textRuns || []) {
+        const runStyle = run.textStyleId ? await styleFont(run.textStyleId) : null;
+        if (run.fontFamily !== undefined || run.fontStyle !== undefined || run.fontWeight !== undefined) {
+          const runBase = runStyle || resolvedBase;
+          await loadExactFont({
+            family: run.fontFamily ?? runBase.family,
+            style: run.fontStyle ?? run.fontWeight ?? runBase.style,
+          });
+        }
+      }
+    }
   }
 }
 if (figma.currentPage !== operationPage) throw new Error("Страница изменилась во время проверки. Повторите чтение макета.");
@@ -314,21 +495,6 @@ if (screenshotKey && !appendKeys.has(screenshotKey)) screenshotNodeId = findByKe
   throw error;
 }
 const missing = resolved.filter((item) => !item.node).map((item) => targetLabel(item.patch));
-
-async function setText(node, content) {
-  if (node.type !== "TEXT") throw new Error("content поддерживается только для TEXT: " + node.name);
-  if (node.fontName === figma.mixed) throw new Error("Смешанные шрифты нельзя патчить целиком: " + node.name);
-  await safety.loadFont(node.fontName);
-  checkOperation();
-  node.characters = content;
-}
-
-async function loadAppendFont(family, style) {
-  await safety.loadFont({ family, style });
-  checkOperation();
-  return { family, style };
-}
-
 function nestAppendItems(items) {
   const byKey = new Map(items.map((item) => [item.key, { ...item, children: [] }]));
   const roots = [];
@@ -360,11 +526,15 @@ async function appendNode(item, parent, created) {
     set.name = item.name;
     set.setPluginData(DATA_KEY, item.key);
     applyLayout(set, item.layout);
+    set.clipsContent = item.clipContent ?? false;
     applyVisual(set, item);
+    await applyEffects(set, item);
+    await fidelity.apply(set, item);
     if (typeof item.width === "number") set.resize(item.width, set.height);
     if (typeof item.height === "number") set.resize(set.width, item.height);
     applyDimension(set, "width", item.width);
     applyDimension(set, "height", item.height);
+    fidelity.position(set, item);
     return set;
   }
 
@@ -372,15 +542,9 @@ async function appendNode(item, parent, created) {
   if (item.type === "text") {
     node = figma.createText();
     created.push(node);
-    const font = await loadAppendFont(item.fontFamily || "Inter", item.fontWeight || "Regular");
-    node.fontName = font;
-    node.characters = item.content;
-    node.fontSize = item.fontSize || 14;
-    node.fills = [paint(item.color || "#111827")];
-    if (item.lineHeight) node.lineHeight = { unit: "PIXELS", value: item.lineHeight };
-    if (item.letterSpacing !== undefined) node.letterSpacing = { unit: "PIXELS", value: item.letterSpacing };
-    if (item.textAlign) node.textAlignHorizontal = item.textAlign.toUpperCase();
-    node.textAutoResize = typeof item.width === "number" ? "HEIGHT" : "WIDTH_AND_HEIGHT";
+    parent.appendChild(node);
+    await applyText(node, item, true);
+    node.textAutoResize = item.textAutoResize ?? (item.width !== undefined && item.width !== "hug" ? "HEIGHT" : "WIDTH_AND_HEIGHT");
   } else if (item.type === "rectangle") {
     node = figma.createRectangle();
   } else if (item.type === "ellipse") {
@@ -395,19 +559,26 @@ async function appendNode(item, parent, created) {
     node = figma.createNodeFromSvg(item.svg);
   } else if (item.type === "component") {
     node = figma.createComponent();
+    node.fills = [];
     created.push(node);
     applyLayout(node, item.layout);
+    node.clipsContent = item.clipContent ?? false;
   } else {
     node = figma.createFrame();
+    node.fills = [];
     created.push(node);
     applyLayout(node, item.layout);
+    node.clipsContent = item.clipContent ?? false;
   }
 
   if (!created.includes(node)) created.push(node);
   node.name = item.type === "component" ? variantName(item.variant, item.name) : item.name;
   node.setPluginData(DATA_KEY, item.key);
-  applyVisual(node, item);
   parent.appendChild(node);
+  applyVisual(node, item);
+  await applyEffects(node, item);
+  await fidelity.apply(node, item);
+  if (item.type === "svg") sizeSvg(node, item);
   if (typeof item.width === "number") node.resize(item.width, node.height);
   if (typeof item.height === "number") node.resize(node.width, item.height);
   if ("children" in node) {
@@ -415,6 +586,7 @@ async function appendNode(item, parent, created) {
   }
   applyDimension(node, "width", item.width);
   applyDimension(node, "height", item.height);
+  fidelity.position(node, item);
   return node;
 }
 
@@ -426,13 +598,8 @@ for (const { patch, node, snapshot } of prepared) {
   touched.push(snapshot);
   const value = patch.set || {};
   if (value.name !== undefined) node.name = value.name;
-  if (snapshot.nextFont) node.fontName = snapshot.nextFont;
-  if (value.content !== undefined) await setText(node, value.content);
-  if (value.fontSize !== undefined) node.fontSize = value.fontSize;
-  if (value.lineHeight !== undefined) node.lineHeight = { unit: "PIXELS", value: value.lineHeight };
-  if (value.letterSpacing !== undefined) node.letterSpacing = { unit: "PIXELS", value: value.letterSpacing };
-  if (value.textAlign !== undefined) node.textAlignHorizontal = value.textAlign.toUpperCase();
-  if (value.clipContent !== undefined) node.clipsContent = value.clipContent;
+  await applyText(node, value);
+  await applyEffects(node, value);
   if (value.layout !== undefined) {
     applyLayout(node, {
       direction: node.layoutMode === "NONE" ? "none" : node.layoutMode === "HORIZONTAL" ? "horizontal" : "vertical",
@@ -446,12 +613,11 @@ for (const { patch, node, snapshot } of prepared) {
   }
   if (value.visible !== undefined) node.visible = value.visible;
   if (value.opacity !== undefined) node.opacity = value.opacity;
-  if (value.x !== undefined) node.x = value.x;
-  if (value.y !== undefined) node.y = value.y;
   if (value.background !== undefined && "fills" in node) node.fills = [paint(value.background)];
   if (value.color !== undefined && node.type === "TEXT") node.fills = [paint(value.color)];
   if (value.stroke !== undefined && "strokes" in node) node.strokes = [paint(value.stroke)];
   if (value.strokeWidth !== undefined && "strokeWeight" in node) node.strokeWeight = value.strokeWidth;
+  if (value.clipContent !== undefined && "clipsContent" in node) node.clipsContent = value.clipContent;
   if (value.cornerRadius !== undefined && "cornerRadius" in node) node.cornerRadius = value.cornerRadius;
   if (value.gap !== undefined && "itemSpacing" in node) node.itemSpacing = value.gap;
   if (value.padding !== undefined && "paddingTop" in node) {
@@ -467,6 +633,8 @@ for (const { patch, node, snapshot } of prepared) {
   }
   applyDimension(node, "width", value.width);
   applyDimension(node, "height", value.height);
+  await fidelity.apply(node, value);
+  fidelity.position(node, value);
 
   for (const root of nestAppendItems(patch.append || [])) {
     await appendNode(root, node, created);
@@ -495,10 +663,14 @@ const maxDepth = ${literal(depth)};
 const maxNodes = ${literal(maxNodes)};
 let count = 0;
 let truncated = false;
+const unread = [];
+const assets = [];
+const fidelityWarnings = [];
 
 function inspect(node, level) {
   if (count >= maxNodes) {
     truncated = true;
+    unread.push({ nodeId: node.id, reason: "maxNodes" });
     return null;
   }
   count += 1;
@@ -510,14 +682,54 @@ function inspect(node, level) {
     visible: node.visible,
     bounds: { x: node.x, y: node.y, width: node.width, height: node.height },
   };
-  if (node.type === "TEXT") item.content = node.characters;
+  let ancestor = node;
+  item.effectiveVisible = true;
+  while (ancestor && ancestor.type !== "DOCUMENT") {
+    if (ancestor.visible === false) item.effectiveVisible = false;
+    ancestor = ancestor.parent;
+  }
+  if (node.layoutMode === "GRID") fidelityWarnings.push({ nodeId: node.id, feature: "GRID", message: "Grid ещё не поддержан render_screen; нельзя молча заменять его вертикальным Auto Layout" });
+  if (node.isMask) fidelityWarnings.push({ nodeId: node.id, feature: "mask", message: "Маску с содержимым экспортируйте отдельным SVG; связь маски не воссоздаётся spec" });
+  if (node.relativeTransform && (Math.abs(node.relativeTransform[0][0] * node.relativeTransform[0][1] + node.relativeTransform[1][0] * node.relativeTransform[1][1]) > 0.001 || node.relativeTransform[0][0] * node.relativeTransform[1][1] - node.relativeTransform[0][1] * node.relativeTransform[1][0] < 0)) fidelityWarnings.push({ nodeId: node.id, feature: "affine_transform", message: "Отражение или skew требует отдельного SVG; rotation недостаточно" });
+  if ("fills" in node && node.fills !== figma.mixed) item.fills = node.fills;
+  if ("strokes" in node) item.strokes = node.strokes;
+  if ("strokeWeight" in node && node.strokeWeight !== figma.mixed) item.strokeWidth = node.strokeWeight;
+  if ("cornerRadius" in node && node.cornerRadius !== figma.mixed) item.cornerRadius = node.cornerRadius;
+  if ("clipsContent" in node) item.clipContent = node.clipsContent;
+  if ("opacity" in node) item.opacity = node.opacity;
+  if ("effects" in node) item.effects = node.effects;
+  if ("effectStyleId" in node && node.effectStyleId !== figma.mixed) item.effectStyleId = node.effectStyleId;
+  if (node.type === "TEXT") {
+    item.content = node.characters;
+    item.mixedTextProperties = [];
+    for (const field of ["fontName", ...textFields, "textStyleId"]) {
+      const value = node[field];
+      if (value === figma.mixed) item.mixedTextProperties.push(field);
+      else if (field === "fontName") {
+        item.fontFamily = value.family;
+        item.fontStyle = value.style;
+      } else item[field] = value;
+    }
+    item.textAlign = node.textAlignHorizontal.toLowerCase();
+    item.textAutoResize = node.textAutoResize;
+    item.hasMissingFont = node.hasMissingFont;
+    const segments = node.getStyledTextSegments(["fontName", ...textFields, "textStyleId", "fills"]);
+    if (segments.length > 1) item.textRuns = segments.map(segment => ({
+      start: segment.start, end: segment.end,
+      fontFamily: segment.fontName.family, fontStyle: segment.fontName.style,
+      ...Object.fromEntries([...textFields, "textStyleId"].map(field => [field, segment[field]])),
+      fills: segment.fills,
+    }));
+    // Keep raw paints per segment: gradients/variables must not be mistaken for a solid color.
+    if (segments.length > 1) item.textRunFills = segments.map(segment => ({ start: segment.start, end: segment.end, fills: segment.fills }));
+  }
   if (node.type === "INSTANCE") item.componentProperties = node.componentProperties;
   if (node.type === "COMPONENT") item.variantProperties = node.variantProperties;
   if (node.type === "COMPONENT_SET") item.variantGroupProperties = node.variantGroupProperties;
   if (detail === "full") {
     const serializable = (value) => value === figma.mixed ? "MIXED" : value;
     item.parentId = node.parent?.id || null;
-    for (const field of ["opacity", "fills", "strokes", "strokeWeight", "cornerRadius", "clipsContent", "effects", "fillStyleId", "strokeStyleId", "effectStyleId", "boundVariables", "explicitVariableModes", "layoutSizingHorizontal", "layoutSizingVertical", "layoutPositioning", "minWidth", "maxWidth", "minHeight", "maxHeight", "absoluteBoundingBox"]) {
+    for (const field of ["opacity", "fills", "strokes", "strokeWeight", "cornerRadius", "clipsContent", "effects", "fillStyleId", "strokeStyleId", "effectStyleId", "boundVariables", "explicitVariableModes", "layoutSizingHorizontal", "layoutSizingVertical", "layoutPositioning", "minWidth", "maxWidth", "minHeight", "maxHeight", "absoluteBoundingBox", "relativeTransform", "rotation", "constraints", "topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius", "cornerSmoothing", "strokeAlign", "strokeTopWeight", "strokeBottomWeight", "strokeLeftWeight", "strokeRightWeight", "dashPattern", "blendMode", "isMask", "maskType", "textAlignVertical", "paragraphSpacing", "paragraphIndent", "vectorPaths", "strokeCap", "strokeJoin"]) {
       if (field in node) item[field] = serializable(node[field]);
     }
     if (node.type === "TEXT") {
@@ -534,6 +746,9 @@ function inspect(node, level) {
         primaryAlign: node.primaryAxisAlignItems,
         counterAlign: node.counterAxisAlignItems,
         wrap: node.layoutWrap,
+        counterAxisSpacing: node.counterAxisSpacing,
+        strokesIncludedInLayout: node.strokesIncludedInLayout,
+        itemReverseZIndex: node.itemReverseZIndex,
       } : {}),
     };
   }
@@ -541,7 +756,13 @@ function inspect(node, level) {
     item.children = node.children.map((child) => inspect(child, level + 1)).filter(Boolean);
   } else if ("children" in node) {
     item.childCount = node.children.length;
+    if (node.children.length) {
+      truncated = true;
+      unread.push({ nodeId: node.id, reason: "depth", childCount: node.children.length });
+    }
   }
+  const imageHashes = [...(Array.isArray(node.fills) ? node.fills : []), ...(Array.isArray(node.strokes) ? node.strokes : [])].filter(p => p.type === "IMAGE").map(p => p.imageHash);
+  if (["VECTOR", "BOOLEAN_OPERATION", "STAR", "POLYGON", "LINE"].includes(node.type) || imageHashes.length) assets.push({ nodeId: node.id, type: node.type, imageHashes });
   return item;
 }
 
@@ -553,6 +774,8 @@ return {
   missing: requested ? requested.filter((_id, index) => !roots[index]) : [],
   inspectedNodes: count,
   truncated,
+  coverage: { complete: !truncated && !roots.some(node => !node), unread, assetNodes: assets },
+  fidelityWarnings,
 };`;
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "figma-local-bridge",
-  "version": "0.2.2+codex.20260905133013",
+  "version": "0.3.0+codex.20260906180610",
   "description": "Local typed MCP bridge for reading and editing Figma Desktop files.",
   "author": {
     "name": "fixnow12"

@@ -3,6 +3,7 @@
     "figma-local": {
       "command": "node",
       "args": ["./src/server.mjs"],
+      "cwd": ".",
       "env": {
         "FIGMA_WS_HOST": "127.0.0.1"
       }
