@@ -10,7 +10,7 @@ const jsonFiles = [
   'plugins/figma-local-bridge/.codex-plugin/plugin.json',
   'plugins/figma-local-bridge/.mcp.json',
   'plugins/figma-local-bridge/package.json',
-  'plugins/figma-local-bridge/figma-plugin/manifest.json'
+  'plugins/figma-local-bridge/src/figma-plugin/manifest.template.json'
 ];
 
 for (const relativePath of jsonFiles) {
@@ -31,7 +31,7 @@ const packageJson = JSON.parse(await readFile(resolve(root, 'plugins/figma-local
 assert.equal(plugin.version.split("+")[0], packageJson.version);
 assert.match(plugin.version, /^[^+]+(?:\+codex\.[a-z0-9-]+)?$/);
 
-const figmaManifest = JSON.parse(await readFile(resolve(root, 'plugins/figma-local-bridge/figma-plugin/manifest.json'), 'utf8'));
+const figmaManifest = JSON.parse(await readFile(resolve(root, 'plugins/figma-local-bridge/src/figma-plugin/manifest.template.json'), 'utf8'));
 for (const domain of [
   ...(figmaManifest.networkAccess?.allowedDomains || []),
   ...(figmaManifest.networkAccess?.devAllowedDomains || []),

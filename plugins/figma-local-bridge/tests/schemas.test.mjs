@@ -5,7 +5,25 @@ import {
   normalizeScreenSpec,
   screenSpecSchema,
   useComponentSchema,
+  parseRenderScreenInput,
 } from "../src/schemas.mjs";
+
+test("публичный fill контейнера нормализуется в background, сохраняя токены и приоритет", () => {
+  const parsed = parseRenderScreenInput({ spec: {
+    key: "screen", name: "Screen", type: "screen", width: 360, height: 711,
+    tokens: { colors: [{ name: "primary", value: "#702FF4" }] },
+    nodes: [
+      { key: "card", name: "Карточка", type: "frame", fill: "$colors.primary" },
+      { key: "button", name: "Кнопка", type: "component", fill: "#FF0000", background: "#00FF00" },
+      { key: "bar", name: "Полоса", type: "rectangle", fill: "#0000FF" },
+    ],
+  } });
+  const result = normalizeScreenSpec(parsed.spec);
+  assert.equal(result.children[0].background, "#702FF4");
+  assert.equal(result.children[0].fill, undefined);
+  assert.equal(result.children[1].background, "#00FF00");
+  assert.equal(result.children[2].fill, "#0000FF");
+});
 
 test("существующая smoke-спека проходит валидацию", async () => {
   const spec = JSON.parse(await readFile(new URL("../specs/smoke-test.json", import.meta.url), "utf8"));

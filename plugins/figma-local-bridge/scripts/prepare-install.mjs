@@ -21,7 +21,7 @@ export async function prepareInstallation(directory = installationDirectory()) {
     const data = await loadInstallation(directory);
     const target = join(directory, 'figma-plugin');
     await privateDirectory(target);
-    const source = join(pluginRoot, 'figma-plugin');
+    const source = join(pluginRoot, 'src', 'figma-plugin');
     let ui = await readFile(join(source, 'ui.html'), 'utf8');
     const cryptoSource = await readFile(require.resolve('tweetnacl/nacl-fast.min.js'), 'utf8');
     const channelSource = await readFile(join(pluginRoot, 'src/secure-channel.cjs'), 'utf8');
@@ -31,7 +31,7 @@ export async function prepareInstallation(directory = installationDirectory()) {
     await privateWrite(join(target, 'ui.html'), ui);
     for (const name of ['code.js', 'icon.png', 'LICENSE.upstream']) await privateWrite(join(target, name), await readFile(join(source, name)));
     await privateWrite(join(target, 'LICENSE.tweetnacl'), await readFile(require.resolve('tweetnacl/LICENSE'), 'utf8'));
-    const manifest = JSON.parse(await readFile(join(source, 'manifest.json'), 'utf8'));
+    const manifest = JSON.parse(await readFile(join(source, 'manifest.template.json'), 'utf8'));
     manifest.name = 'Figma Desktop Bridge — Auto';
     // Preserve the namespace of existing node.getPluginData/setPluginData keys.
     // Installation identity is cryptographic and must not change the plugin ID.
