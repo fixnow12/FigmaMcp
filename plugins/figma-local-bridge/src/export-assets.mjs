@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { fileKeyDescription } from "./file-target.mjs";
 
 export const exportAssetsInputSchema = {
-  fileKey: z.string().min(1).optional(),
+  fileKey: z.string().min(1).optional().describe(fileKeyDescription),
   nodeIds: z.array(z.string().min(1).max(160)).min(1).max(20),
   format: z.enum(["svg", "images"]).default("svg"),
   maxBytes: z.number().int().min(1024).max(8_000_000).default(2_000_000),

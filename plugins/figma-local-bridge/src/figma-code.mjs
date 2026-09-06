@@ -109,6 +109,12 @@ function sizeSvg(node, item) {
 
 const fontLoads = new Map();
 let availableFonts;
+function fontLoadFailure(font, detail, cause) {
+  return new Error("Недоступен шрифт для загрузки «" + font.family + " / " + font.style + "». " + detail +
+    " Причина Figma: " + String(cause && cause.message || cause).slice(0, 500) +
+    ". Сохраните исходное семейство и начертание. Не заменяйте шрифт на Inter, Regular или другой шрифт и не повторяйте запись с заменой без явного согласия пользователя. " +
+    "Сообщите пользователю имя шрифта и причину; предложите восстановить его доступность в Figma либо согласовать конкретную замену.");
+}
 async function loadExactFont(font) {
   const key = JSON.stringify(font);
   if (!fontLoads.has(key)) fontLoads.set(key, (async () => {
@@ -118,17 +124,30 @@ async function loadExactFont(font) {
     } catch (error) {
       // Accept spelling differences only, never substitute another weight/family.
       if (typeof figma.listAvailableFontsAsync !== "function") {
-        throw new Error("Шрифт недоступен: «" + font.family + " / " + font.style + "»");
+        throw fontLoadFailure(font, "Проверка списка доступных шрифтов не поддерживается; отсутствие шрифта не подтверждено.", error);
       }
-      availableFonts ||= figma.listAvailableFontsAsync();
+      let fonts;
+      try {
+        availableFonts ||= figma.listAvailableFontsAsync();
+        fonts = await availableFonts;
+      } catch (listingError) {
+        throw fontLoadFailure(font, "Не удалось проверить список шрифтов: " + String(listingError.message || listingError).slice(0, 500) + "; отсутствие шрифта не подтверждено.", error);
+      }
       const normalize = value => value.toLowerCase().replace(/[\\s_-]/g, "");
-      const matches = (await availableFonts).map(item => item.fontName).filter(item =>
+      const matches = fonts.map(item => item.fontName).filter(item =>
         item.family === font.family && normalize(item.style) === normalize(font.style));
       if (matches.length === 1) {
-        await figma.loadFontAsync(matches[0]);
+        if (matches[0].style === font.style) {
+          throw fontLoadFailure(font, "Шрифт есть в списке доступных Figma, но загрузить его не удалось.", error);
+        }
+        try {
+          await figma.loadFontAsync(matches[0]);
+        } catch (aliasError) {
+          throw fontLoadFailure(font, "Найдено эквивалентное начертание «" + matches[0].style + "», но его загрузка также не удалась.", aliasError);
+        }
         return matches[0];
       }
-      throw new Error("Недоступен шрифт «" + font.family + " / " + font.style + "». Установите его или явно укажите другое начертание. Regular автоматически не подставляется.");
+      throw fontLoadFailure(font, matches.length ? "В списке Figma найдено несколько неоднозначных совпадений начертания." : "В списке доступных Figma нет совпадающего семейства и начертания.", error);
     }
   })());
   return fontLoads.get(key);

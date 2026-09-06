@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { fileKeyDescription } from "./file-target.mjs";
 
 const id = () => z.string().min(1).max(160);
 const position = () => z.object({ x: z.number(), y: z.number() }).strict();
-const preview = () => ({ screenshot: z.boolean().optional(), screenshotScale: z.number().min(0.5).max(4).optional(), fileKey: id().optional() });
+const preview = () => ({ screenshot: z.boolean().optional(), screenshotScale: z.number().min(0.5).max(4).optional(), fileKey: id().optional().describe(fileKeyDescription) });
 
 export const cloneNodesInputSchema = {
   copies: z.array(z.object({
@@ -40,7 +41,7 @@ export const findAssetsInputSchema = {
   collectionKey: id().optional(),
   offset: z.number().int().nonnegative().optional(),
   limit: z.number().int().min(1).max(200).optional(),
-  fileKey: id().optional(),
+  fileKey: id().optional().describe(fileKeyDescription),
 };
 export const findAssetsSchema = z.object(findAssetsInputSchema).strict().superRefine((input, context) => {
   if (input.kind === "library_variables" && !input.collectionKey) context.addIssue({ code: z.ZodIssueCode.custom, message: "Для library_variables нужен collectionKey" });

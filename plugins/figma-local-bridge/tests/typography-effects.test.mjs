@@ -149,6 +149,37 @@ test("алиас SemiBold разрешается только в то же на�
   assert.equal((await inspect(figma, rootId)).children[0].fontStyle, "Semi Bold");
 });
 
+test("сбой загрузки существующего шрифта требует согласования замены и сохраняет экран", async () => {
+  const { figma, nodes } = fixture();
+  const initial = await render(figma);
+  const count = nodes.size;
+  const requested = [];
+  figma.loadFontAsync = async font => { requested.push(font); throw new Error("Font service unavailable"); };
+  await assert.rejects(render(figma), error => {
+    assert.match(error.message, /есть в списке/);
+    assert.match(error.message, /Font service unavailable/);
+    assert.match(error.message, /без явного согласия пользователя/);
+    return true;
+  });
+  assert.deepEqual(requested, [medium]);
+  assert.equal(nodes.size, count);
+  assert.ok(nodes.has(initial.rootId));
+});
+
+test("ошибка списка или загрузки алиаса сохраняет причину и указание согласовать замену", async () => {
+  for (const mode of ["listing", "alias", "no-listing", "missing"]) {
+    const { figma } = fixture();
+    if (mode !== "missing") figma.loadFontAsync = async () => { throw new Error("Load failed"); };
+    if (mode === "listing") figma.listAvailableFontsAsync = async () => { throw new Error("List failed"); };
+    if (mode === "no-listing") delete figma.listAvailableFontsAsync;
+    await assert.rejects(render(figma, renderInput({ fontFamily: mode === "missing" ? "YS Text" : "Inter", fontStyle: "SemiBold" })), error => {
+      assert.match(error.message, /без явного согласия пользователя/);
+      assert.match(error.message, mode === "alias" ? /эквивалентное начертание/ : mode === "missing" ? /нет совпадающего/ : /отсутствие шрифта не подтверждено/);
+      return true;
+    });
+  }
+});
+
 test("patch меняет типографику существующего слоя и не сбрасывает её при изменении content", async () => {
   const { figma } = fixture();
   const { rootId } = await render(figma);
