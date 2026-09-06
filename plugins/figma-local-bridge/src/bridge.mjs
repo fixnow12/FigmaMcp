@@ -2,6 +2,8 @@ import { createServer as createHttpServer } from "node:http";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
 import secureChannel from './secure-channel.cjs';
+import { remoteError } from './bridge-errors.mjs';
+import { runtimeInfo } from './runtime-info.mjs';
 
 const DEFAULT_HOST = process.env.FIGMA_WS_HOST || "127.0.0.1";
 const DEFAULT_PORT = Number(process.env.FIGMA_WS_PORT || 9223);
@@ -235,7 +237,7 @@ export class LocalFigmaWebSocketServer {
       if (pending.ws === ws) {
         clearTimeout(pending.timeoutId);
         this.pendingRequests.delete(message.id);
-        if (message.error) pending.reject(new Error(message.error));
+        if (message.error) pending.reject(remoteError(message.error, message.errorDetails));
         else pending.resolve(message.result);
         return;
       }
@@ -283,6 +285,7 @@ export class LocalFigmaWebSocketServer {
         editorType: data.editorType || "figma",
         connectedAt: Date.now(),
         pluginVersion: data.pluginVersion || null,
+        pluginBuild: data.pluginBuild || null,
       },
       selection: existing?.selection || null,
       lastActivity: Date.now(),
@@ -316,11 +319,14 @@ export class LocalFigmaWebSocketServer {
         this.pendingRequests.delete(id);
         const error = new Error(`Команда ${method} не завершилась за ${timeoutMs} мс. Результат неизвестен: проверьте макет перед повтором.`);
         error.operationStatus = "unknown";
+        error.code = "PLUGIN_RESPONSE_TIMEOUT";
+        error.fileKey = fileKey;
+        error.nextStep = `Откройте вкладку целевого файла ${client.fileInfo.fileName} в Figma Desktop и проверьте журнал Bridge. Соединение WebSocket и isActive не доказывают готовность Plugin API. Не повторяйте запись автоматически; после восстановления сначала прочитайте затронутые узлы.`;
         reject(error);
       }, timeoutMs);
       this.pendingRequests.set(id, { resolve, reject, timeoutId, fileKey, method, ws: client.ws });
       try {
-        client.ws.send(JSON.stringify({ id, method, params }));
+        client.ws.send(JSON.stringify({ id, method, params, expiresAt: Date.now() + timeoutMs }));
         client.lastActivity = Date.now();
       } catch (error) {
         clearTimeout(timeoutId);
@@ -464,9 +470,10 @@ export class FigmaBridge {
     const targetInfoBefore = this.wsServer.getConnectedFiles().find((file) => file.fileKey === fileKey) || this.wsServer.getConnectedFileInfo();
     const metadata = operation ? { name: operation.name, mutating: operation.mutating,
       fileName: targetInfoBefore?.fileName, pageName: targetInfoBefore?.currentPage, pageId } : undefined;
-    const response = await this.wsServer.sendCommand("EXECUTE_CODE", { code, timeout, ...(metadata ? { operation: metadata } : {}) }, timeout + 2000, fileKey, expectedSocket);
+    // Allow the iframe readiness probe (2s) and result relay outside the execution budget.
+    const response = await this.wsServer.sendCommand("EXECUTE_CODE", { code, timeout, ...(metadata ? { operation: metadata } : {}) }, timeout + 5000, fileKey, expectedSocket);
     if (!response?.success) {
-      const error = new Error(response?.error || "Figma Plugin API вернул ошибку");
+      const error = remoteError(response?.error || "Figma Plugin API вернул ошибку", response);
       error.operationStatus = response?.operationStatus || "unknown";
       error.rollbackErrors = response?.rollbackErrors;
       throw error;
@@ -481,6 +488,7 @@ export class FigmaBridge {
 
   status() {
     return {
+      runtime: runtimeInfo,
       version: SERVER_VERSION,
       host: this.host,
       port: this.port,
@@ -497,7 +505,7 @@ export class FigmaBridge {
   async captureScreenshot(nodeId, { scale = 1, fileKey, expectedSocket } = {}) {
     await this.waitForConnection();
     const response = await this.wsServer.sendCommand("CAPTURE_SCREENSHOT", { nodeId, format: "PNG", scale }, 30000, fileKey, expectedSocket);
-    if (!response?.success) throw new Error(response?.error || "Не удалось получить снимок Figma");
+    if (!response?.success) throw remoteError(response?.error || "Не удалось получить снимок Figma", response);
     return response.image;
   }
 

@@ -67,7 +67,13 @@ test('истёкший запрос очереди не выполняется �
   const { calls, clients: [first, second] } = await fixture(t, { queueTimeoutMs: 50 });
   const active = first.execute('active', { fileKey: 'a' });
   await until(() => calls.length === 1);
-  await assert.rejects(second.execute('expired', { fileKey: 'a' }), /Команда не отправлена/);
+  await assert.rejects(second.execute('expired', { fileKey: 'a' }), error => {
+    assert.match(error.message, /Команда не отправлена/);
+    assert.equal(error.operationStatus, 'not_applied');
+    assert.equal(error.code, 'FILE_BUSY');
+    assert.equal(error.fileKey, 'a');
+    return true;
+  });
   const next = second.execute('next', { fileKey: 'a' });
   await pause(10);
   assert.equal(calls.length, 1);
@@ -78,6 +84,21 @@ test('истёкший запрос очереди не выполняется �
   calls[1].resolve('done');
   await next;
   assert.equal(calls.some(call => call.code === 'expired'), false);
+});
+
+test('broker сохраняет неизвестный результат и ошибки отката через защищённый канал', async t => {
+  const { calls, clients: [client] } = await fixture(t);
+  for (const operationStatus of ['unknown', 'partial', 'rolled_back', 'not_applied']) {
+    const pending = client.execute('failing', { fileKey: 'a' });
+    const rejected = assert.rejects(pending, error => {
+      assert.equal(error.operationStatus, operationStatus);
+      assert.deepEqual(error.rollbackErrors, ['Узел 1:2']);
+      return true;
+    });
+    await until(() => calls.length > 0);
+    calls.shift().reject(Object.assign(new Error('Ошибка Figma'), { operationStatus, rollbackErrors: ['Узел 1:2'] }));
+    await rejected;
+  }
 });
 
 test('закрытие сессии отменяет её очередь, но не освобождает уже выполняющуюся операцию', async t => {

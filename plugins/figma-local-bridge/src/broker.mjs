@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { errorDetails } from './bridge-errors.mjs';
 import { FigmaBridge } from './bridge.mjs';
 import { installationDirectory, loadInstallation, identityFor } from './installation.mjs';
 
@@ -47,7 +48,10 @@ export async function startBroker({ directory = installationDirectory(), port = 
       await Promise.race([
         previous,
         new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error('Файл выполняет другую операцию. Повторите запрос после её завершения. Команда не отправлена в Figma.')), queueTimeoutMs);
+          timer = setTimeout(() => reject(Object.assign(new Error('Файл выполняет другую операцию. Команда не отправлена в Figma.'), {
+            operationStatus: 'not_applied', code: 'FILE_BUSY', fileKey,
+            nextStep: 'Дождитесь завершения текущей операции в Bridge. Не запускайте цикл повторов с sleep.',
+          })), queueTimeoutMs);
         }),
       ]);
       clearTimeout(timer);
@@ -94,7 +98,7 @@ export async function startBroker({ directory = installationDirectory(), port = 
             } else throw new Error('Неизвестная операция Bridge');
             if (!session.closed) ws.send(JSON.stringify({ id: message.id, result }));
           } catch (error) {
-            if (!session.closed && ws.readyState === 1) ws.send(JSON.stringify({ id: message.id, error: error.message }));
+            if (!session.closed && ws.readyState === 1) ws.send(JSON.stringify({ id: message.id, error: error.message, errorDetails: errorDetails(error) }));
           } finally {
             session.pending--;
             session.requests.delete(message.id);

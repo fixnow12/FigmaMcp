@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import channel from '../src/secure-channel.cjs';
+import { pluginRevision } from '../src/runtime-info.mjs';
 import { installationDirectory, privateDirectory, privateWrite, loadInstallation, identityFor } from '../src/installation.mjs';
 
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -25,7 +26,7 @@ export async function prepareInstallation(directory = installationDirectory()) {
     let ui = await readFile(join(source, 'ui.html'), 'utf8');
     const cryptoSource = await readFile(require.resolve('tweetnacl/nacl-fast.min.js'), 'utf8');
     const channelSource = await readFile(join(pluginRoot, 'src/secure-channel.cjs'), 'utf8');
-    const bootstrap = `window.__FIGMA_LOCAL_IDENTITY__ = ${JSON.stringify(identityFor(data, 'plugin'))};`;
+    const bootstrap = `window.__FIGMA_LOCAL_IDENTITY__ = ${JSON.stringify(identityFor(data, 'plugin'))};\nwindow.__FIGMA_LOCAL_BUILD__ = ${JSON.stringify(pluginRevision())};`;
     ui = ui.replace('<!-- LOCAL_SECURE_BOOTSTRAP -->', `<script>${cryptoSource}\n${channelSource}\n${bootstrap}</script>`);
     if (!ui.includes(bootstrap)) throw new Error('В UI отсутствует точка установки ключей');
     await privateWrite(join(target, 'ui.html'), ui);

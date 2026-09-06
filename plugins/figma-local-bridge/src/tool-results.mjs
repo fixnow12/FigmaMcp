@@ -1,3 +1,5 @@
+import { errorDetails } from './bridge-errors.mjs';
+
 export function toolSuccess(payload, image) {
   return {
     content: [
@@ -30,8 +32,7 @@ export function toolFailure(error) {
   const validation = error?.name === "ZodError" && Array.isArray(error.issues);
   const payload = {
     error: validation ? validationMessage(error.issues) : error instanceof Error ? error.message : String(error),
-    ...(error.operationStatus ? { operationStatus: error.operationStatus } : {}),
-    ...(error.rollbackErrors ? { rollbackErrors: error.rollbackErrors } : {}),
+    ...errorDetails(error),
   };
   return { isError: true, content: [{ type: "text", text: validation ? payload.error : JSON.stringify(payload) }], structuredContent: payload };
 }

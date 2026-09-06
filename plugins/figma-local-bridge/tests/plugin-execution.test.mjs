@@ -22,7 +22,11 @@ async function executionHandler(figma, globals = {}) {
   return {
     messages,
     result(id) { return new Promise((resolve) => listeners.set(id, resolve)); },
-    run(id, code, timeout = 1000) { return figma.ui.onmessage({ type: "EXECUTE_CODE", requestId: id, code, timeout }); },
+    run(id, code, timeout = 1000, extra = {}) { return figma.ui.onmessage({ type: "EXECUTE_CODE", requestId: id, code, timeout, ...extra }); },
+    async probe() {
+      await figma.ui.onmessage({ type: 'GET_EXECUTION_STATUS', requestId: 'probe' });
+      return messages.filter(msg => msg.type === 'GET_EXECUTION_STATUS_RESULT').at(-1);
+    },
   };
 }
 
@@ -37,14 +41,27 @@ test("тайм-аут не освобождает очередь до завер
   const second = handler.run("second", 'events.push("second"); return 2;');
   try {
     assert.equal((await timedOut).operationStatus, "unknown");
+    assert.equal((await handler.probe()).busy, true, 'probe не ждёт завершения зависшей операции');
     assert.deepEqual(events, ["first-start"]);
   } finally {
     release();
     await Promise.all([first, second]);
   }
   assert.deepEqual(events, ["first-start", "second"]);
+  assert.equal((await handler.probe()).busy, false);
   assert.equal(handler.messages.find((message) => message.requestId === "second" && message.type === "EXECUTE_CODE_RESULT").success, true);
   assert.deepEqual(handler.messages.filter((message) => message.type === "OPERATION_PROGRESS").map((message) => [message.requestId, message.state]), [["first", "queued"], ["second", "queued"], ["first", "running"], ["second", "running"]]);
+});
+
+test('команда, задержавшаяся до приёма Plugin API, не выполняется после активации вкладки', async () => {
+  const mock = createFigmaMock();
+  const events = [];
+  const handler = await executionHandler(mock.figma, { events, Date: { now: () => 2000 } });
+  await handler.run('suspended', 'events.push("late-write"); return 1;', 1000, { expiresAt: 1999 });
+  assert.deepEqual(events, []);
+  const result = handler.messages.find(msg => msg.type === 'EXECUTE_CODE_RESULT');
+  assert.equal(result.operationStatus, 'not_applied');
+  assert.equal((await handler.probe()).busy, false);
 });
 
 test("сгенерированный патч после тайм-аута на загрузке шрифта не пишет в макет", async () => {

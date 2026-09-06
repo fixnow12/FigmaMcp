@@ -37,6 +37,15 @@ test('проверка исходников не выдаёт проверку M
   assert.equal(report.files, undefined);
 });
 
+test('проверка OpenCode запускает MCP из opencode.json и проверяет полное чтение', async () => {
+  const report = await verifyInstallation({ opencode: true });
+  assert.match(report.configPath, /opencode.json$/);
+  assert.equal(report.tools.length, 11);
+  assert.ok(report.inspectFields.includes('nodeIds'));
+  assert.ok(report.inspectFields.includes('detail'));
+  assert.equal(report.liveChecked, false);
+});
+
 test('проверка установленной версии обнаруживает устаревший кэш с той же версией', async t => {
   const codexHome = await temporary(t);
   const manifest = JSON.parse(await readFile(join(root, '.codex-plugin/plugin.json'), 'utf8'));

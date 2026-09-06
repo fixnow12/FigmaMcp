@@ -35,6 +35,16 @@ test("ошибка снимка не превращает успешную за�
   assert.equal(writes, 1);
 });
 
+test('ошибка готовности сохраняет следующий шаг в MCP-ответе', () => {
+  const response = toolFailure(Object.assign(new Error('Плагин не отвечает'), {
+    code: 'PLUGIN_UNRESPONSIVE', operationStatus: 'not_applied', nextStep: 'Откройте целевой файл',
+  }));
+  assert.equal(response.isError, true);
+  assert.equal(response.structuredContent.code, 'PLUGIN_UNRESPONSIVE');
+  assert.equal(response.structuredContent.nextStep, 'Откройте целевой файл');
+  assert.deepEqual(JSON.parse(response.content[0].text), response.structuredContent);
+});
+
 test("ошибка записи сохраняет статус отката и не запускает экспорт", async () => {
   const bridge = {
     runInFile: async (_key, operation) => operation({ fileKey: "a" }),

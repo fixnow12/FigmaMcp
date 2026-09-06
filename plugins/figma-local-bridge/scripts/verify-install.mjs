@@ -8,13 +8,21 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-export async function verifyInstallation({ pluginRoot = sourceRoot, live = false, screenshot = false, env = process.env } = {}) {
+export async function verifyInstallation({ pluginRoot = sourceRoot, opencode = false, live = false, screenshot = false, env = process.env } = {}) {
 pluginRoot = resolve(pluginRoot);
-const manifest = JSON.parse(await readFile(resolve(pluginRoot, '.mcp.json'), 'utf8'));
-const config = manifest.mcpServers['figma-local'];
+const configPath = opencode ? resolve(pluginRoot, '../../opencode.json') : resolve(pluginRoot, '.mcp.json');
+const manifest = JSON.parse(await readFile(configPath, 'utf8'));
+let config = manifest.mcpServers?.['figma-local'];
+if (opencode) {
+  const entry = manifest.mcp?.['figma-local'];
+  assert.equal(entry?.type, 'local', 'OpenCode: figma-local должен быть локальным MCP');
+  assert.notEqual(entry.enabled, false, 'OpenCode: figma-local отключён');
+  assert.ok(Array.isArray(entry.command) && entry.command.length, 'OpenCode: не задана команда MCP');
+  config = { command: entry.command[0], args: entry.command.slice(1), cwd: entry.cwd || '.', env: entry.environment };
+}
 // Codex otherwise inherits the task directory, not the installed plugin directory.
-assert.equal(config.cwd, '.', 'MCP должен запускаться из корня установленного плагина');
-const serverCwd = resolve(pluginRoot, config.cwd);
+if (!opencode) assert.equal(config.cwd, '.', 'MCP должен запускаться из корня установленного плагина');
+const serverCwd = resolve(dirname(configPath), config.cwd);
 const expectedTools = ['bind_variables', 'clone_nodes', 'export_assets', 'find_assets', 'get_status', 'inspect_selection', 'move_nodes', 'patch_nodes', 'recreate_screen', 'render_screen', 'use_component'];
 
 const transport = new StdioClientTransport({
@@ -28,7 +36,7 @@ const transport = new StdioClientTransport({
 const client = new Client({ name: 'figma-local-verifier', version: '1.0.0' });
 // Drain diagnostics without exposing pairing references or private data.
 transport.stderr?.on('data', () => {});
-let stage = 'запуск MCP из .mcp.json';
+let stage = `запуск MCP из ${opencode ? 'opencode.json' : '.mcp.json'}`;
 
 try {
   await client.connect(transport, { timeout: 10000 });
@@ -36,6 +44,11 @@ try {
   const response = await client.listTools();
   const actualTools = response.tools.map((tool) => tool.name).sort();
   assert.deepEqual(actualTools, [...expectedTools].sort());
+  const inspect = response.tools.find(tool => tool.name === 'inspect_selection').inputSchema.properties;
+  assert.equal(inspect.nodeIds?.type, 'array', 'Устаревшая схема inspect_selection: нет nodeIds');
+  assert.deepEqual(inspect.detail?.enum, ['compact', 'full'], 'Устаревшая схема inspect_selection: нет detail');
+  assert.equal(inspect.depth?.maximum, 8);
+  assert.equal(inspect.maxNodes?.maximum, 1000);
   for (const tool of response.tools) {
     assert.equal(typeof tool.description, 'string');
     assert.ok(tool.description.length > 30, `${tool.name}: слишком короткое описание`);
@@ -47,7 +60,9 @@ try {
     }
     checkArrays(tool.inputSchema);
   }
-  const report = { pluginRoot, command: config.command, tools: actualTools, liveChecked: false };
+  const report = { pluginRoot, configPath, command: config.command, tools: actualTools,
+    inspectFields: Object.keys(inspect), liveChecked: false,
+    note: 'Проверен новый MCP-процесс из конфигурации. Каталог уже открытого чата может быть устаревшим: переподключите MCP и откройте новый чат.' };
   if (!live && !screenshot) return report;
   async function call(name, args = {}) {
     const response = await client.callTool({ name, arguments: args }, undefined, { timeout: 20000 });
@@ -87,8 +102,8 @@ try {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const { values } = parseArgs({ options: { 'plugin-root': { type: 'string' }, live: { type: 'boolean' }, screenshot: { type: 'boolean' } } });
-    const report = await verifyInstallation({ pluginRoot: values['plugin-root'], live: values.live, screenshot: values.screenshot });
+    const { values } = parseArgs({ options: { 'plugin-root': { type: 'string' }, opencode: { type: 'boolean' }, live: { type: 'boolean' }, screenshot: { type: 'boolean' } } });
+    const report = await verifyInstallation({ pluginRoot: values['plugin-root'], opencode: values.opencode, live: values.live, screenshot: values.screenshot });
     console.log(JSON.stringify(report, null, 2));
     if (!report.liveChecked) console.log('MCP-контракт проверен. Соединение с Figma не проверялось; для этого запустите verify -- --live --screenshot.');
   } catch (error) {

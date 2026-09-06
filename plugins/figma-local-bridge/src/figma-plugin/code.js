@@ -469,13 +469,22 @@ async function resolveSlotNode(params) {
 // Serialize generated operations across all connected local MCP clients.
 // A timeout reports uncertainty, but must not release the lock while code is still running.
 var executeCodeQueue = Promise.resolve();
+var pendingExecutions = 0;
 figma.ui.onmessage = async (msg) => {
+
+  // This probe bypasses the execution queue and never reads or changes the canvas.
+  if (msg.type === 'GET_EXECUTION_STATUS') {
+    figma.ui.postMessage({ type: 'GET_EXECUTION_STATUS_RESULT', requestId: msg.requestId,
+      success: true, busy: pendingExecutions > 0, pendingExecutions: pendingExecutions });
+    return;
+  }
 
   // ============================================================================
   // EXECUTE_CODE - Arbitrary code execution (Power Tool)
   // ============================================================================
   if (msg.type === 'EXECUTE_CODE') {
     var executionReceivedAt = Date.now();
+    pendingExecutions++;
     var previousExecution = executeCodeQueue;
     var releaseExecution;
     executeCodeQueue = new Promise(function(resolve) { releaseExecution = resolve; });
@@ -485,6 +494,9 @@ figma.ui.onmessage = async (msg) => {
     var executionTimer;
     try {
       var remainingTime = (msg.timeout || 5000) - (Date.now() - executionReceivedAt);
+      // The iframe may post a command while Figma has suspended the main context.
+      // Count that delay too, so activating the tab cannot execute an expired write.
+      if (typeof msg.expiresAt === 'number') remainingTime = Math.min(remainingTime, msg.expiresAt - Date.now());
       if (remainingTime <= 0) {
         var expiredError = new Error('Operation expired in queue; no changes were applied.');
         expiredError.operationStatus = 'not_applied';
@@ -613,6 +625,7 @@ figma.ui.onmessage = async (msg) => {
       try {
         if (codePromise) await codePromise.catch(function() {});
       } finally {
+        pendingExecutions--;
         releaseExecution();
       }
     }
