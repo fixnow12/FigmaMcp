@@ -1,11 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createFigmaMock, executeGenerated } from "./helpers/figma-mock.mjs";
 import {
   buildInspectCode,
   buildPatchCode,
   buildRenderCode,
   buildUseComponentCode,
 } from "../src/figma-code.mjs";
+
+test("успешная сборка новой спеки не объявляет сходство с исходником проверенным", async () => {
+  const mock = createFigmaMock();
+  const result = await executeGenerated(mock.figma, buildRenderCode({
+    spec: { key: "new-screen", name: "Новый экран", type: "screen", width: 360, height: 711, children: [] },
+    replace: false,
+  }));
+  assert.ok(mock.nodes.has(result.rootId));
+  assert.equal(result.verification.status, "not_checked");
+  assert.equal(result.verification.scope, "source-fidelity");
+  assert.equal(result.verification.pixelParityVerified, false);
+});
 
 test("render_screen компилирует стабильные ключи и экранирует закрывающие теги", () => {
   const code = buildRenderCode({

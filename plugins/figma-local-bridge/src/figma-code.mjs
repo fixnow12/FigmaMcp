@@ -437,6 +437,12 @@ try {
     sectionId: createdSection.id,
     key: spec.key,
     nodeCount: root.findAll().length + 1,
+    verification: {
+      status: "not_checked",
+      scope: "source-fidelity",
+      pixelParityVerified: false,
+      reason: "Создана переданная спецификация. Сравнение с исходным экраном не выполнялось; PNG и отсутствие наложений не подтверждают сходство.",
+    },
   };
   if (figma.currentPage === operationPage) {
     operationPage.selection = [root];
@@ -754,14 +760,18 @@ function inspect(node, level) {
     item.textAutoResize = node.textAutoResize;
     item.hasMissingFont = node.hasMissingFont;
     const segments = node.getStyledTextSegments(["fontName", ...textFields, "textStyleId", "fills"]);
-    if (segments.length > 1) item.textRuns = segments.map(segment => ({
+    // Figma may report mixed node properties even with one resolved segment
+    // (for example text in an instance). Keep that segment: it is the only
+    // concrete font/paint source for reconstruction.
+    const needsRuns = segments.length > 1 || item.mixedTextProperties.length > 0 || node.fills === figma.mixed;
+    if (segments.length && needsRuns) item.textRuns = segments.map(segment => ({
       start: segment.start, end: segment.end,
       fontFamily: segment.fontName.family, fontStyle: segment.fontName.style,
       ...Object.fromEntries([...textFields, "textStyleId"].map(field => [field, segment[field]])),
       fills: segment.fills,
     }));
     // Keep raw paints per segment: gradients/variables must not be mistaken for a solid color.
-    if (segments.length > 1) item.textRunFills = segments.map(segment => ({ start: segment.start, end: segment.end, fills: segment.fills }));
+    if (segments.length && needsRuns) item.textRunFills = segments.map(segment => ({ start: segment.start, end: segment.end, fills: segment.fills }));
   }
   if (node.type === "INSTANCE") item.componentProperties = node.componentProperties;
   if (node.type === "COMPONENT") item.variantProperties = node.variantProperties;

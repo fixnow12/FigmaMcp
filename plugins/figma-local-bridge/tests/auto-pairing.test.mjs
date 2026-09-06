@@ -28,7 +28,7 @@ test('установка создаёт персональный плагин б
   const firstUi = await readFile(join(directory, 'figma-plugin/ui.html'), 'utf8');
   const config = JSON.parse(await readFile(manifest, 'utf8'));
   assert.equal(config.name, 'Figma Desktop Bridge — Auto');
-  const sourceManifest = JSON.parse(await readFile(new URL('../figma-plugin/manifest.json', import.meta.url), 'utf8'));
+  const sourceManifest = JSON.parse(await readFile(new URL('../src/figma-plugin/manifest.template.json', import.meta.url), 'utf8'));
   assert.equal(config.id, sourceManifest.id, 'обновление должно сохранить namespace pluginData');
   assert.ok(firstUi.includes(installation.plugin));
   assert.equal(firstUi.includes(installation.server), false);

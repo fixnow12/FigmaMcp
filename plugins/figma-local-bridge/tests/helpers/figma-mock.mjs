@@ -93,6 +93,7 @@ export function createFigmaMock() {
         },
       });
       for (const field of ["fontName", "fontSize", "fills", "textCase", "textDecoration", "letterSpacing", "lineHeight", "hyperlink"]) {
+        raw["getRange" + field[0].toUpperCase() + field.slice(1)] = function() { return this[field]; };
         raw["setRange" + field[0].toUpperCase() + field.slice(1)] = function(_start, _end, value) { this[field] = value; };
       }
       raw.setRangeTextStyleIdAsync = async function(_start, _end, id) { this.textStyleId = id; };

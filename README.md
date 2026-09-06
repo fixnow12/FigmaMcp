@@ -58,11 +58,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
 
 1. Откройте Figma Desktop.
 2. Выберите **Plugins → Development → Import plugin from manifest…**.
-3. Выберите **персональный manifest**, путь к которому напечатал установщик:
+3. Откройте **«Плагин Figma»** в корне проекта и выберите **manifest.json**. Это ярлык на единственную рабочую сборку. Если ярлыка нет, используйте путь, который напечатал установщик:
    - macOS: `~/.figma-local-bridge/figma-plugin/manifest.json`;
    - Windows: `%USERPROFILE%\.figma-local-bridge\figma-plugin\manifest.json`.
 
-В диалоге macOS нажмите `⌘⇧G`, чтобы перейти в скрытый каталог. Плагин называется **Figma Desktop Bridge — Auto**. Manifest в исходниках репозитория служит шаблоном; импортировать нужно персональную сборку.
+В диалоге macOS нажмите `⌘⇧G`, чтобы перейти в скрытый каталог. Плагин называется **Figma Desktop Bridge — Auto**. При обновлении установщик обновляет эту же сборку, сохраняя путь и настройки подключения.
+
+Для разработки исходники находятся в `plugins/figma-local-bridge/src/figma-plugin`. `manifest.template.json` — внутренний файл сборки, а не второй плагин для импорта. Установщик добавляет персональные данные автоподключения только в рабочую сборку вне репозитория.
 
 ### 3. Откройте проект в OpenCode Desktop
 
@@ -178,4 +180,4 @@ Bridge слушает `127.0.0.1:9233`. Установщик создаёт ра
 
 Код FigmaMcp распространяется по лицензии MIT.
 
-Часть Figma Desktop Bridge основана на стороннем проекте `figma-console-mcp@1.40.0`. Его лицензия и необходимые уведомления сохранены в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) и `plugins/figma-local-bridge/figma-plugin/LICENSE.upstream`.
+Часть Figma Desktop Bridge основана на стороннем проекте `figma-console-mcp@1.40.0`. Его лицензия и необходимые уведомления сохранены в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) и `plugins/figma-local-bridge/src/figma-plugin/LICENSE.upstream`.

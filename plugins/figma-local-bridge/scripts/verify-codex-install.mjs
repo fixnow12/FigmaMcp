@@ -28,7 +28,7 @@ export async function verifyCodexInstallation({ codexHome = process.env.CODEX_HO
     }
   }
   for (const path of ['.mcp.json', '.codex-plugin/plugin.json', 'package.json', 'package-lock.json']) await compare(path);
-  for (const path of ['src', 'skills', 'scripts', 'figma-plugin']) await compareTree(path);
+  for (const path of ['src', 'skills', 'scripts']) await compareTree(path);
   return { ...(await verifyInstallation({ pluginRoot: installedRoot, live, screenshot })), cacheMatchesSource: true };
 }
 

@@ -5,7 +5,7 @@ import vm from "node:vm";
 
 // Exercise the real sender, activity wrapper and response relay, without network or Figma writes.
 async function activityUI() {
-  const source = await readFile(new URL("../figma-plugin/ui.html", import.meta.url), "utf8");
+  const source = await readFile(new URL("../src/figma-plugin/ui.html", import.meta.url), "utf8");
   class Element {
     children = []; dataset = {}; style = {}; textContent = ""; fields = new Map();
     get lastElementChild() { return this.children.at(-1); }

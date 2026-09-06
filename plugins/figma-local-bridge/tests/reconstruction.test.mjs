@@ -58,6 +58,26 @@ test("dryRun не создаёт слоёв; недоступные шрифты
   assert.equal(f.nodes.size, count);
 });
 
+test("mixed fontName с одним диапазоном сохраняет фактический шрифт при воссоздании", async () => {
+  const f = fixture();
+  const font = { family: "Factor IO", style: "Medium" };
+  const originalSegments = f.text.getStyledTextSegments.bind(f.text);
+  const segments = originalSegments(["fontName", "fontSize", "lineHeight", "letterSpacing", "fills"]);
+  f.text.fontName = f.figma.mixed;
+  f.text.getStyledTextSegments = () => segments.map(segment => ({ ...segment, fontName: font }));
+  const read = await executeGenerated(f.figma, buildReconstructionRead(f.root.id));
+  const sourceText = read.snapshot.selection[0].children[0].children[0];
+  assert.deepEqual(sourceText.mixedTextProperties, ["fontName"]);
+  assert.equal(sourceText.textRuns.length, 1);
+  assert.equal(sourceText.textRuns[0].fontFamily, font.family);
+  assert.equal(sourceText.textRuns[0].fontStyle, font.style);
+  const compiled = compileReconstruction(read, { key: "single-mixed-run" });
+  const result = await executeGenerated(f.figma, buildReconstructionWrite(compiled, { x: 1600, y: 0 }));
+  const rebuiltText = f.nodes.get(result.mapping.find(entry => entry.sourceId === f.text.id).id);
+  assert.deepEqual(rebuiltText.fontName, font);
+  assert.equal(rebuiltText.characters, f.text.characters);
+});
+
 test("глубокие ветки дочитываются без модели; лимит не превращается в неполную сборку", async () => {
   const f = fixture(); let parent = f.card;
   for (let i = 0; i < 12; i++) parent = f.make("FRAME", { layoutMode: "NONE" }, parent);

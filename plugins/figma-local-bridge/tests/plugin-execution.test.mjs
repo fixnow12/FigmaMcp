@@ -6,7 +6,7 @@ import { buildPatchCode } from "../src/figma-code.mjs";
 import { createFigmaMock } from "./helpers/figma-mock.mjs";
 
 async function executionHandler(figma, globals = {}) {
-  const source = await readFile(new URL("../figma-plugin/code.js", import.meta.url), "utf8");
+  const source = await readFile(new URL("../src/figma-plugin/code.js", import.meta.url), "utf8");
   const start = source.indexOf("var executeCodeQueue = Promise.resolve();");
   const end = source.indexOf("\n  // ============================================================================\n  // UPDATE_VARIABLE", start);
   assert.ok(start > 0 && end > start);
