@@ -14,7 +14,6 @@ $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $system = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')
 $item = Get-Item -LiteralPath $path -Force
 $acl = $item.GetAccessControl()
-if ($acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'Installation must belong to the current user' }
 ${set ? `
 $acl = New-Object System.Security.AccessControl.DirectorySecurity
 $acl.SetOwner($sid)
@@ -26,6 +25,7 @@ foreach ($principal in @($sid, $system)) {
 $item.SetAccessControl($acl)
 $acl = $item.GetAccessControl()
 ` : ''}
+if ($acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'Installation must belong to the current user' }
 foreach ($rule in $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
   if ($rule.AccessControlType -eq 'Allow' -and $rule.IdentityReference.Value -notin @($sid.Value, $system.Value)) { throw 'Installation permissions are not private' }
 }
