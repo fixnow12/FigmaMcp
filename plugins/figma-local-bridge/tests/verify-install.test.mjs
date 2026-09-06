@@ -32,7 +32,7 @@ test('проверка отклоняет manifest без cwd до запуск�
 
 test('проверка исходников не выдаёт проверку MCP за живое соединение с Figma', async () => {
   const report = await verifyInstallation();
-  assert.equal(report.tools.length, 10);
+  assert.equal(report.tools.length, 11);
   assert.equal(report.liveChecked, false);
   assert.equal(report.files, undefined);
 });

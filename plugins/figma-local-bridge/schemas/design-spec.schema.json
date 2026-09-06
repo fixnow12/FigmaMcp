@@ -714,6 +714,62 @@
           ],
           "additionalProperties": false
         },
+        "opacity": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            {
+              "allOf": [
+                {
+                  "type": "string",
+                  "maxLength": 180,
+                  "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                },
+                {
+                  "$ref": "#/definitions/CodexFigmaDesignSpec/properties/opacity/anyOf/0"
+                }
+              ]
+            },
+            {
+              "type": "string",
+              "maxLength": 180,
+              "pattern": "^\\$numbers\\.[^.].*$"
+            }
+          ],
+          "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "strokeWidth": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "allOf": [
+                {
+                  "type": "string",
+                  "maxLength": 180,
+                  "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                },
+                {
+                  "$ref": "#/definitions/CodexFigmaDesignSpec/properties/strokeWidth/anyOf/0"
+                }
+              ]
+            },
+            {
+              "type": "string",
+              "maxLength": 180,
+              "pattern": "^\\$numbers\\.[^.].*$"
+            }
+          ],
+          "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
+        },
         "clipContent": {
           "type": "boolean"
         },
@@ -1891,8 +1947,37 @@
                   "rectangle",
                   "ellipse",
                   "image",
-                  "svg"
+                  "svg",
+                  "line",
+                  "vector"
                 ]
+              },
+              "vectorPaths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "windingRule": {
+                      "type": "string",
+                      "enum": [
+                        "NONZERO",
+                        "EVENODD"
+                      ]
+                    },
+                    "data": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000000
+                    }
+                  },
+                  "required": [
+                    "windingRule",
+                    "data"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 2000
               },
               "key": {
                 "type": "string",
@@ -1955,35 +2040,43 @@
                   {
                     "anyOf": [
                       {
-                        "type": "number",
-                        "exclusiveMinimum": 0
-                      },
-                      {
-                        "allOf": [
+                        "anyOf": [
+                          {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          {
+                            "allOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 180,
+                                "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                              },
+                              {
+                                "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/height/anyOf/0/anyOf/0/anyOf/0"
+                              }
+                            ]
+                          },
                           {
                             "type": "string",
                             "maxLength": 180,
-                            "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
-                          },
-                          {
-                            "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/height/anyOf/0/anyOf/0"
+                            "pattern": "^\\$numbers\\.[^.].*$"
                           }
-                        ]
+                        ],
+                        "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                       },
                       {
                         "type": "string",
-                        "maxLength": 180,
-                        "pattern": "^\\$numbers\\.[^.].*$"
+                        "enum": [
+                          "fill",
+                          "hug"
+                        ]
                       }
-                    ],
-                    "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
+                    ]
                   },
                   {
-                    "type": "string",
-                    "enum": [
-                      "fill",
-                      "hug"
-                    ]
+                    "type": "number",
+                    "const": 0
                   }
                 ]
               },
@@ -2194,6 +2287,27 @@
                   }
                 ],
                 "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
+              },
+              "strokeCap": {
+                "type": "string",
+                "enum": [
+                  "NONE",
+                  "ROUND",
+                  "SQUARE",
+                  "ARROW_LINES",
+                  "ARROW_EQUILATERAL",
+                  "DIAMOND_FILLED",
+                  "TRIANGLE_FILLED",
+                  "CIRCLE_FILLED"
+                ]
+              },
+              "strokeJoin": {
+                "type": "string",
+                "enum": [
+                  "MITER",
+                  "BEVEL",
+                  "ROUND"
+                ]
               },
               "cornerRadius": {
                 "anyOf": [

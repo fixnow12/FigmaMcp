@@ -123,6 +123,8 @@ const common = {
   effectStyleId: z.string().optional(),
 };
 
+const vectorPathsSchema = () => z.array(z.object({ windingRule: z.enum(["NONZERO", "EVENODD"]), data: z.string().min(1).max(2000000) }).strict()).min(1).max(2000);
+
 const containerFields = {
   ...common,
   background: colorValue.optional(),
@@ -134,6 +136,8 @@ const containerFields = {
 };
 
 export const designNodeSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("vector"), ...common, vectorPaths: vectorPathsSchema(), strokeWidth: nonnegativeValue.optional(), cornerRadius: nonnegativeValue.optional(), strokeCap: z.enum(["NONE", "ROUND", "SQUARE", "ARROW_LINES", "ARROW_EQUILATERAL", "DIAMOND_FILLED", "TRIANGLE_FILLED", "CIRCLE_FILLED"]).optional(), strokeJoin: z.enum(["MITER", "BEVEL", "ROUND"]).optional() }).strict(),
+  z.object({ type: z.literal("line"), ...common, width: nonnegativeValue.optional(), height: z.literal(0).optional(), strokeWidth: nonnegativeValue.optional(), strokeCap: z.enum(["NONE", "ROUND", "SQUARE", "ARROW_LINES", "ARROW_EQUILATERAL", "DIAMOND_FILLED", "TRIANGLE_FILLED", "CIRCLE_FILLED"]).optional(), strokeJoin: z.enum(["MITER", "BEVEL", "ROUND"]).optional() }).strict(),
   z.object({ type: z.literal("frame"), ...containerFields }).strict(),
   z.object({ type: z.literal("component"), ...containerFields, variant: z.record(z.string()).optional() }).strict(),
   z.object({ type: z.literal("componentSet"), ...containerFields }).strict(),
@@ -189,6 +193,9 @@ export const designNodeSchema = z.discriminatedUnion("type", [
 export const screenSpecBaseSchema = z
   .object({
     ...fidelityFields(),
+    opacity: unitValue.optional(),
+    visible: z.boolean().optional(),
+    strokeWidth: nonnegativeValue.optional(),
     clipContent: z.boolean().optional(),
     $schema: z.string().optional(),
     key: keySchema,
@@ -257,15 +264,16 @@ const publicLayout = () => z.object({
   wrap: z.boolean().optional(),
 }).strict();
 
-const publicDesignNodeSchema = z.object({
+export const publicDesignNodeSchema = z.object({
   ...fidelityFields(),
-  type: z.enum(["frame", "component", "componentSet", "text", "rectangle", "ellipse", "image", "svg"]),
+  type: z.enum(["frame", "component", "componentSet", "text", "rectangle", "ellipse", "image", "svg", "line", "vector"]),
+  vectorPaths: vectorPathsSchema().optional(),
   key: z.string().min(1).max(160),
   parentKey: z.string().min(1).max(160).optional(),
   order: z.number().int().nonnegative().optional(),
   name: z.string().min(1).max(240),
   width: publicDimension().optional(),
-  height: publicDimension().optional(),
+  height: z.union([publicDimension(), z.literal(0)]).optional(),
   opacity: publicNumber({ minimum: 0, maximum: 1 }).optional(),
   visible: z.boolean().optional(),
   effects: z.array(effectSchema()).max(32).optional(),
@@ -274,6 +282,8 @@ const publicDesignNodeSchema = z.object({
   fill: publicColor().optional(),
   stroke: publicColor().optional(),
   strokeWidth: publicNumber({ minimum: 0 }).optional(),
+  strokeCap: z.enum(["NONE", "ROUND", "SQUARE", "ARROW_LINES", "ARROW_EQUILATERAL", "DIAMOND_FILLED", "TRIANGLE_FILLED", "CIRCLE_FILLED"]).optional(),
+  strokeJoin: z.enum(["MITER", "BEVEL", "ROUND"]).optional(),
   cornerRadius: publicNumber({ minimum: 0 }).optional(),
   clipContent: z.boolean().optional(),
   layout: publicLayout().optional(),
@@ -291,6 +301,9 @@ const publicDesignNodeSchema = z.object({
 
 export const screenSpecPublicSchema = z.object({
   ...fidelityFields(),
+  opacity: publicNumber({ minimum: 0, maximum: 1 }).optional(),
+  visible: z.boolean().optional(),
+  strokeWidth: publicNumber({ minimum: 0 }).optional(),
   clipContent: z.boolean().optional(),
   $schema: z.string().optional(),
   key: z.string().min(1).max(160),
@@ -494,6 +507,8 @@ export function adaptPublicScreenSpec(spec) {
   return {
     ...spec,
     background: publicTokenValue(spec.background),
+    opacity: publicTokenValue(spec.opacity),
+    strokeWidth: publicTokenValue(spec.strokeWidth),
     cornerRadius: publicTokenValue(spec.cornerRadius),
     layout: publicLayoutToInternal(spec.layout),
     tokens,

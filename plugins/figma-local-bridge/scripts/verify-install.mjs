@@ -15,7 +15,7 @@ const config = manifest.mcpServers['figma-local'];
 // Codex otherwise inherits the task directory, not the installed plugin directory.
 assert.equal(config.cwd, '.', 'MCP должен запускаться из корня установленного плагина');
 const serverCwd = resolve(pluginRoot, config.cwd);
-const expectedTools = ['bind_variables', 'clone_nodes', 'export_assets', 'find_assets', 'get_status', 'inspect_selection', 'move_nodes', 'patch_nodes', 'render_screen', 'use_component'];
+const expectedTools = ['bind_variables', 'clone_nodes', 'export_assets', 'find_assets', 'get_status', 'inspect_selection', 'move_nodes', 'patch_nodes', 'recreate_screen', 'render_screen', 'use_component'];
 
 const transport = new StdioClientTransport({
   // Do not substitute process.execPath: that hides a broken command/PATH.

@@ -35,10 +35,20 @@ test("MCP публикует типизированные схемы без unkn
     for (const tool of tools) checkArrays(tool.inputSchema, tool.name);
     assert.deepEqual(
       tools.map((tool) => tool.name).sort(),
-      ["bind_variables", "clone_nodes", "export_assets", "find_assets", "get_status", "inspect_selection", "move_nodes", "patch_nodes", "render_screen", "use_component"],
+      ["bind_variables", "clone_nodes", "export_assets", "find_assets", "get_status", "inspect_selection", "move_nodes", "patch_nodes", "recreate_screen", "render_screen", "use_component"],
     );
 
     const render = tools.find((tool) => tool.name === "render_screen");
+    const recreate = tools.find((tool) => tool.name === "recreate_screen");
+    assert.ok(recreate.inputSchema.required.includes("fileKey"));
+    assert.ok(recreate.inputSchema.required.includes("sourceId"));
+    const change = recreate.inputSchema.properties.changes.items;
+    assert.equal(change.properties.sourceId.type, "string");
+    assert.deepEqual(change.properties.action.enum, ["update", "remove", "replace", "append"]);
+    assert.equal(change.properties.set.type, "object");
+    assert.equal(change.properties.set.properties.content.type, "string");
+    assert.equal(change.properties.nodes.type, "array");
+    assert.equal(change.properties.nodes.items.properties.type.type, "string");
     const status = await client.callTool({ name: "get_status", arguments: {} });
     assert.equal(status.isError, undefined);
     assert.equal(status.structuredContent.connected, false);
@@ -48,7 +58,7 @@ test("MCP публикует типизированные схемы без unkn
     assert.equal(spec.properties.nodes.type, "array");
     assert.deepEqual(
       [...spec.properties.nodes.items.properties.type.enum].sort(),
-      ["component", "componentSet", "ellipse", "frame", "image", "rectangle", "svg", "text"],
+      ["component", "componentSet", "ellipse", "frame", "image", "line", "rectangle", "svg", "text", "vector"],
     );
     assert.equal(spec.properties.tokens.type, "object");
     assert.equal(JSON.stringify(render.inputSchema).includes('"$ref"'), false);

@@ -11,6 +11,7 @@ import { buildFindAssetsCode } from "./asset-catalog.mjs";
 import { buildBindVariablesCode } from "./variable-bindings.mjs";
 import { BrokerClient } from "./broker-client.mjs";
 import { exportAssetsInputSchema, exportAssetsSchema, buildExportAssetsCode } from "./export-assets.mjs";
+import { recreateScreenInputSchema, recreateScreen } from "./reconstruction.mjs";
 import {
   inspectSelectionInputSchema,
   inspectSelectionSchema,
@@ -30,7 +31,7 @@ import {
 } from "./figma-code.mjs";
 
 const instructions =
-  "Локальный write-путь в Figma через Plugin API. Для нового экрана используйте render_screen, " +
+  "Локальный write-путь в Figma через Plugin API. Для точного воссоздания исходного экрана в отдельном фрейме используйте recreate_screen: он читает свойства и создаёт новые узлы без clone(). Для нового экрана по описанию используйте render_screen, " +
   "для итераций — patch_nodes, для чтения выделения — inspect_selection, для экземпляров — use_component. " +
   "Для подключения и списка файлов используйте get_status. Узлы адресуются стабильным key или id. Не перерисовывайте экран ради точечной правки. " +
   "find_assets находит элементы и ресурсы; clone_nodes копирует готовые блоки; move_nodes переносит и переставляет слои; bind_variables привязывает существующие Variables без изменения их значений. " +
@@ -49,6 +50,13 @@ const server = new McpServer(
   { name: "codex-figma-compact", version: "0.3.0" },
   { instructions },
 );
+
+server.registerTool("recreate_screen", {
+  title: "Воссоздать исходный экран",
+  description: "Собирает новый экран по исходнику: полностью читает дерево и создаёт редактируемые слои без clone() и ручного переписывания свойств моделью. Для запроса «почти такой же, но с другими элементами» передайте changes: update свойств, remove, replace блока или append детей по sourceId. Изменения вносятся в план до записи; исходник не меняется. Сохраняет шрифты, paints, изображения, эффекты и Auto Layout. Скрытые ветки исключаются. Неполное чтение, недоступные шрифты, маски/Grid/skew блокируют сборку. dryRun проверяет итоговый план и новые шрифты без создания. Возвращает ID и PNG; сравнение геометрии с оригиналом выполняется только без changes, с changes проверяются тексты и шрифты сохранённых узлов. Используйте для воссоздания и похожих экранов; render_screen — для дизайна с нуля.",
+  inputSchema: recreateScreenInputSchema,
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+}, async input => recreateScreen(bridge, input));
 
 server.registerTool("get_status", {
   title: "Проверить подключение",
@@ -120,20 +128,23 @@ server.registerTool(
   {
     title: "Прочитать выделение",
     description:
-      "Читает выделение, nodeId или nodeIds: размеры, layout, текст и свойства экземпляров; detail=full добавляет точную типографику, textRuns, paints, effects, стили, Variables и Fill/Hug/Fixed. depth: целое 0–8, maxNodes: целое 1–1000. При coverage.complete=false дочитывайте ветки по nodeId из coverage.unread отдельными вызовами с depth ≤ 8. Опционально прикладывает PNG первого узла. includeFiles без fileKey возвращает список подключений.",
+      "Читает выделение, nodeId или nodeIds: размеры, layout, текст и свойства экземпляров; detail=full добавляет точную типографику, textRuns, paints, effects, стили, Variables и Fill/Hug/Fixed. depth: целое 0–8, maxNodes: целое 1–1000. При coverage.complete=false дочитывайте ветки по nodeId из coverage.unread отдельными вызовами с depth ≤ 8. Опционально прикладывает PNG первого узла. Без fileKey при нескольких подключениях возвращает список файлов и requiresFileKey=true без чтения холста; выберите файл по запросу пользователя и повторите с его fileKey. includeFiles добавляет список подключений и при чтении.",
     inputSchema: inspectSelectionInputSchema,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
   async (input) => {
     try {
       const parsed = inspectSelectionSchema.parse(input);
-      const connection = parsed.includeFiles ? await bridge.status() : null;
+      const connection = parsed.includeFiles || !parsed.fileKey ? await bridge.status() : null;
       if (connection && !parsed.fileKey && connection.files.length !== 1) {
         return ok({
           bridge: connection,
           connectedFiles: connection.files,
           requiresFileKey: connection.files.length > 1,
           selectionInspected: false,
+          nextStep: connection.files.length > 1
+            ? "Выберите файл из connectedFiles по ссылке или названию в запросе пользователя и повторите inspect_selection с его fileKey. Если цель не указана, уточните файл у пользователя; наличие выделения не определяет целевой файл."
+            : "Откройте нужный файл в Figma Desktop и запустите Figma Desktop Bridge, затем повторите inspect_selection.",
         });
       }
       // Pin the same file for inspection and its screenshot, even if another

@@ -273,10 +273,10 @@ function variantName(variant, fallback) {
 }
 `;
 
-export function buildRenderCode({ spec, replace, sectionName, position }) {
+export function buildRenderCode({ spec, replace, sectionName, position, dryRun = false }) {
   return `${helpers}
 const spec = ${literal(spec)};
-const options = ${literal({ replace, sectionName, position })};
+const options = ${literal({ replace, sectionName, position, dryRun })};
 let createdSection = null;
 const created = [];
 const previousSelection = [...(operationPage.selection || [])];
@@ -339,6 +339,16 @@ async function build(item, parent) {
     node.textAutoResize = item.textAutoResize ?? (item.width !== undefined && item.width !== "hug" ? "HEIGHT" : "WIDTH_AND_HEIGHT");
   } else if (item.type === "rectangle") {
     node = figma.createRectangle();
+  } else if (item.type === "line") {
+    node = figma.createLine();
+    if (item.strokeCap !== undefined) node.strokeCap = item.strokeCap;
+    if (item.strokeJoin !== undefined) node.strokeJoin = item.strokeJoin;
+  } else if (item.type === "vector") {
+    node = figma.createVector();
+    created.push(node);
+    node.vectorPaths = item.vectorPaths;
+    if (item.strokeCap !== undefined) node.strokeCap = item.strokeCap;
+    if (item.strokeJoin !== undefined) node.strokeJoin = item.strokeJoin;
   } else if (item.type === "ellipse") {
     node = figma.createEllipse();
   } else if (item.type === "image") {
@@ -397,6 +407,7 @@ try {
   }
   await prepareFonts(spec);
   if (figma.currentPage !== operationPage) throw new Error("Страница изменилась во время проверки");
+  if (options.dryRun) return { ready: true };
 
   createdSection = figma.createSection();
   created.push(createdSection);
@@ -568,6 +579,16 @@ async function appendNode(item, parent, created) {
     node = figma.createRectangle();
   } else if (item.type === "ellipse") {
     node = figma.createEllipse();
+  } else if (item.type === "line") {
+    node = figma.createLine();
+    if (item.strokeCap !== undefined) node.strokeCap = item.strokeCap;
+    if (item.strokeJoin !== undefined) node.strokeJoin = item.strokeJoin;
+  } else if (item.type === "vector") {
+    node = figma.createVector();
+    created.push(node);
+    node.vectorPaths = item.vectorPaths;
+    if (item.strokeCap !== undefined) node.strokeCap = item.strokeCap;
+    if (item.strokeJoin !== undefined) node.strokeJoin = item.strokeJoin;
   } else if (item.type === "image") {
     node = figma.createRectangle();
     created.push(node);

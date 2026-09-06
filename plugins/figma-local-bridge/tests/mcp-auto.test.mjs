@@ -52,11 +52,20 @@ test('stdio MCP: два чата читают один файл, includeFiles р
   assert.deepEqual(JSON.parse(empty.content[0].text).connectedFiles, []);
   assert.equal(JSON.parse(empty.content[0].text).selectionInspected, false);
   assert.equal(commands.length, 0);
+  const disconnected = await call(first, { includeFiles: false });
+  assert.equal(disconnected.isError, undefined);
+  assert.equal(disconnected.structuredContent.selectionInspected, false);
+  assert.equal(disconnected.structuredContent.requiresFileKey, false);
+  assert.match(disconnected.structuredContent.nextStep, /Figma Desktop Bridge/);
+  assert.equal(commands.length, 0);
   await addPlugin('stdio-file');
   const result = await call(first);
   assert.equal(result.isError, undefined);
   assert.equal(JSON.parse(result.content[0].text).connectedFiles[0].fileKey, 'stdio-file');
   assert.equal((await call(second)).isError, undefined);
+  const single = await call(first, { includeFiles: false });
+  assert.equal(single.isError, undefined);
+  assert.equal(single.structuredContent.fileContext.fileKey, 'stdio-file');
   await addPlugin('second-file');
   const before = commands.length;
   const inventory = await call(second);
@@ -66,6 +75,25 @@ test('stdio MCP: два чата читают один файл, includeFiles р
   assert.equal(payload.requiresFileKey, true);
   assert.equal(payload.selectionInspected, false);
   assert.equal(commands.length, before, 'список файлов не должен отправлять команды на холст');
+  for (const args of [{}, { includeFiles: false }, { nodeId: '1:2', screenshot: true }, { nodeIds: ['1:2'] }]) {
+    const ordinary = await second.callTool({ name: 'inspect_selection', arguments: args });
+    assert.equal(ordinary.isError, undefined);
+    assert.equal(ordinary.structuredContent.requiresFileKey, true);
+    assert.equal(ordinary.structuredContent.selectionInspected, false);
+    assert.equal(ordinary.structuredContent.connectedFiles.length, 2);
+    assert.match(ordinary.structuredContent.nextStep, /fileKey/);
+  }
+  assert.equal(commands.length, before, 'неоднозначное чтение и PNG не отправляются ни в один файл');
+  const invalid = await call(second, { includeFiles: false, fileKey: 'missing-file' });
+  assert.equal(invalid.isError, true);
+  assert.equal(commands.length, before, 'несуществующий fileKey не заменяется другим файлом');
+  const mutation = await second.callTool({ name: 'patch_nodes', arguments: { patches: [{ id: '1:2', set: { content: 'test' } }] } });
+  assert.equal(mutation.isError, true);
+  assert.equal(commands.length, before, 'изменения по-прежнему требуют явный fileKey');
+  const explicit = await call(second, { includeFiles: false, fileKey: 'stdio-file' });
+  assert.equal(explicit.isError, undefined);
+  assert.equal(explicit.structuredContent.fileContext.fileKey, 'stdio-file');
+  assert.equal(commands.at(-1).fileKey, 'stdio-file');
   assert.equal((await call(first, { fileKey: 'stdio-file' })).isError, undefined);
   assert.equal((await call(second, { fileKey: 'stdio-file' })).isError, undefined);
   assert.equal((await call(second, { fileKey: 'second-file' })).isError, undefined);
