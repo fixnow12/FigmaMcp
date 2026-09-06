@@ -19,7 +19,7 @@
     "smoke:compact": "node scripts/compact-smoke-test.mjs",
     "smoke:advanced": "node scripts/advanced-smoke-test.mjs",
     "schema:export": "node scripts/export-schema.mjs",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node scripts/run-tests.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
