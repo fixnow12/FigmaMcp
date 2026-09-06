@@ -120,7 +120,7 @@ server.registerTool(
   {
     title: "Прочитать выделение",
     description:
-      "Читает выделение, nodeId или nodeIds: размеры, layout, текст и свойства экземпляров; detail=full добавляет точную типографику, textRuns, paints, effects, стили, Variables и Fill/Hug/Fixed. Опционально прикладывает PNG первого узла. includeFiles без fileKey возвращает список подключений.",
+      "Читает выделение, nodeId или nodeIds: размеры, layout, текст и свойства экземпляров; detail=full добавляет точную типографику, textRuns, paints, effects, стили, Variables и Fill/Hug/Fixed. depth: целое 0–8, maxNodes: целое 1–1000. При coverage.complete=false дочитывайте ветки по nodeId из coverage.unread отдельными вызовами с depth ≤ 8. Опционально прикладывает PNG первого узла. includeFiles без fileKey возвращает список подключений.",
     inputSchema: inspectSelectionInputSchema,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
