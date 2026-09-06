@@ -216,20 +216,27 @@ export const screenSpecBaseSchema = z
 // anyOf/$ref и показывают такие поля модели как unknown. Строгая проверка по
 // типам узлов остаётся во внутренней screenSpecBaseSchema ниже по потоку.
 const publicColor = () => z.string().min(1).max(180);
+const numericString = () => z.string().max(180).regex(
+  /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/,
+  "Ожидается число (например, 28) или числовая строка (например, \"28\")",
+).transform(Number);
+const publicNumberToken = () => z.string().max(180).regex(
+  /^\$numbers\.[^.].*$/, "Ссылка на числовой токен должна иметь вид $numbers.name",
+);
 const publicNumber = ({ minimum, exclusiveMinimum, maximum } = {}) => {
-  let schema = z.number();
+  let schema = z.number().finite();
   if (minimum !== undefined) schema = schema.min(minimum);
   if (exclusiveMinimum !== undefined) schema = schema.gt(exclusiveMinimum);
   if (maximum !== undefined) schema = schema.max(maximum);
-  return z.union([schema, z.string().min(1).max(180)]);
+  return z.union([schema, numericString().pipe(schema), publicNumberToken()])
+    .describe("Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке.");
 };
 const publicDimension = () => z.union([
-  z.number().positive(),
-  z.string().min(1).max(180),
+  publicNumber({ exclusiveMinimum: 0 }),
+  z.enum(["fill", "hug"]),
 ]);
 const publicPadding = () => z.union([
-  z.number().nonnegative(),
-  z.string().min(1).max(180),
+  publicNumber({ minimum: 0 }),
   z.object({
     top: publicNumber({ minimum: 0 }).optional(),
     right: publicNumber({ minimum: 0 }).optional(),

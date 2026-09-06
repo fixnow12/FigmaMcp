@@ -754,11 +754,24 @@
               "minimum": 0
             },
             {
+              "allOf": [
+                {
+                  "type": "string",
+                  "maxLength": 180,
+                  "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                },
+                {
+                  "$ref": "#/definitions/CodexFigmaDesignSpec/properties/cornerRadius/anyOf/0"
+                }
+              ]
+            },
+            {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 180
+              "maxLength": 180,
+              "pattern": "^\\$numbers\\.[^.].*$"
             }
-          ]
+          ],
+          "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
         },
         "effects": {
           "type": "array",
@@ -924,22 +937,52 @@
                   "type": "number"
                 },
                 {
+                  "allOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 180,
+                      "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                    },
+                    {
+                      "$ref": "#/definitions/CodexFigmaDesignSpec/properties/layout/properties/gap/anyOf/0"
+                    }
+                  ]
+                },
+                {
                   "type": "string",
-                  "minLength": 1,
-                  "maxLength": 180
+                  "maxLength": 180,
+                  "pattern": "^\\$numbers\\.[^.].*$"
                 }
-              ]
+              ],
+              "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
             },
             "padding": {
               "anyOf": [
                 {
-                  "type": "number",
-                  "minimum": 0
-                },
-                {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 180
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    {
+                      "allOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 180,
+                          "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                        },
+                        {
+                          "$ref": "#/definitions/CodexFigmaDesignSpec/properties/layout/properties/padding/anyOf/0/anyOf/0"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "maxLength": 180,
+                      "pattern": "^\\$numbers\\.[^.].*$"
+                    }
+                  ],
+                  "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                 },
                 {
                   "type": "object",
@@ -951,11 +994,24 @@
                           "minimum": 0
                         },
                         {
+                          "allOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 180,
+                              "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                            },
+                            {
+                              "$ref": "#/definitions/CodexFigmaDesignSpec/properties/layout/properties/padding/anyOf/1/properties/top/anyOf/0"
+                            }
+                          ]
+                        },
+                        {
                           "type": "string",
-                          "minLength": 1,
-                          "maxLength": 180
+                          "maxLength": 180,
+                          "pattern": "^\\$numbers\\.[^.].*$"
                         }
-                      ]
+                      ],
+                      "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                     },
                     "right": {
                       "anyOf": [
@@ -964,11 +1020,24 @@
                           "minimum": 0
                         },
                         {
+                          "allOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 180,
+                              "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                            },
+                            {
+                              "$ref": "#/definitions/CodexFigmaDesignSpec/properties/layout/properties/padding/anyOf/1/properties/right/anyOf/0"
+                            }
+                          ]
+                        },
+                        {
                           "type": "string",
-                          "minLength": 1,
-                          "maxLength": 180
+                          "maxLength": 180,
+                          "pattern": "^\\$numbers\\.[^.].*$"
                         }
-                      ]
+                      ],
+                      "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                     },
                     "bottom": {
                       "anyOf": [
@@ -977,11 +1046,24 @@
                           "minimum": 0
                         },
                         {
+                          "allOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 180,
+                              "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                            },
+                            {
+                              "$ref": "#/definitions/CodexFigmaDesignSpec/properties/layout/properties/padding/anyOf/1/properties/bottom/anyOf/0"
+                            }
+                          ]
+                        },
+                        {
                           "type": "string",
-                          "minLength": 1,
-                          "maxLength": 180
+                          "maxLength": 180,
+                          "pattern": "^\\$numbers\\.[^.].*$"
                         }
-                      ]
+                      ],
+                      "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                     },
                     "left": {
                       "anyOf": [
@@ -990,11 +1072,24 @@
                           "minimum": 0
                         },
                         {
+                          "allOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 180,
+                              "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                            },
+                            {
+                              "$ref": "#/definitions/CodexFigmaDesignSpec/properties/layout/properties/padding/anyOf/1/properties/left/anyOf/0"
+                            }
+                          ]
+                        },
+                        {
                           "type": "string",
-                          "minLength": 1,
-                          "maxLength": 180
+                          "maxLength": 180,
+                          "pattern": "^\\$numbers\\.[^.].*$"
                         }
-                      ]
+                      ],
+                      "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                     }
                   },
                   "additionalProperties": false
@@ -1821,26 +1916,74 @@
               "width": {
                 "anyOf": [
                   {
-                    "type": "number",
-                    "exclusiveMinimum": 0
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      {
+                        "allOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 180,
+                            "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                          },
+                          {
+                            "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/width/anyOf/0/anyOf/0"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "maxLength": 180,
+                        "pattern": "^\\$numbers\\.[^.].*$"
+                      }
+                    ],
+                    "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                   },
                   {
                     "type": "string",
-                    "minLength": 1,
-                    "maxLength": 180
+                    "enum": [
+                      "fill",
+                      "hug"
+                    ]
                   }
                 ]
               },
               "height": {
                 "anyOf": [
                   {
-                    "type": "number",
-                    "exclusiveMinimum": 0
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      {
+                        "allOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 180,
+                            "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                          },
+                          {
+                            "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/height/anyOf/0/anyOf/0"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "maxLength": 180,
+                        "pattern": "^\\$numbers\\.[^.].*$"
+                      }
+                    ],
+                    "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                   },
                   {
                     "type": "string",
-                    "minLength": 1,
-                    "maxLength": 180
+                    "enum": [
+                      "fill",
+                      "hug"
+                    ]
                   }
                 ]
               },
@@ -1852,11 +1995,24 @@
                     "maximum": 1
                   },
                   {
+                    "allOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 180,
+                        "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                      },
+                      {
+                        "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/opacity/anyOf/0"
+                      }
+                    ]
+                  },
+                  {
                     "type": "string",
-                    "minLength": 1,
-                    "maxLength": 180
+                    "maxLength": 180,
+                    "pattern": "^\\$numbers\\.[^.].*$"
                   }
-                ]
+                ],
+                "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
               },
               "visible": {
                 "type": "boolean"
@@ -2020,11 +2176,24 @@
                     "minimum": 0
                   },
                   {
+                    "allOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 180,
+                        "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                      },
+                      {
+                        "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/strokeWidth/anyOf/0"
+                      }
+                    ]
+                  },
+                  {
                     "type": "string",
-                    "minLength": 1,
-                    "maxLength": 180
+                    "maxLength": 180,
+                    "pattern": "^\\$numbers\\.[^.].*$"
                   }
-                ]
+                ],
+                "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
               },
               "cornerRadius": {
                 "anyOf": [
@@ -2033,11 +2202,24 @@
                     "minimum": 0
                   },
                   {
+                    "allOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 180,
+                        "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                      },
+                      {
+                        "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/cornerRadius/anyOf/0"
+                      }
+                    ]
+                  },
+                  {
                     "type": "string",
-                    "minLength": 1,
-                    "maxLength": 180
+                    "maxLength": 180,
+                    "pattern": "^\\$numbers\\.[^.].*$"
                   }
-                ]
+                ],
+                "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
               },
               "clipContent": {
                 "type": "boolean"
@@ -2069,22 +2251,52 @@
                         "type": "number"
                       },
                       {
+                        "allOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 180,
+                            "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                          },
+                          {
+                            "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/layout/properties/gap/anyOf/0"
+                          }
+                        ]
+                      },
+                      {
                         "type": "string",
-                        "minLength": 1,
-                        "maxLength": 180
+                        "maxLength": 180,
+                        "pattern": "^\\$numbers\\.[^.].*$"
                       }
-                    ]
+                    ],
+                    "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                   },
                   "padding": {
                     "anyOf": [
                       {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 180
+                        "anyOf": [
+                          {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          {
+                            "allOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 180,
+                                "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                              },
+                              {
+                                "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/layout/properties/padding/anyOf/0/anyOf/0"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "maxLength": 180,
+                            "pattern": "^\\$numbers\\.[^.].*$"
+                          }
+                        ],
+                        "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                       },
                       {
                         "type": "object",
@@ -2096,11 +2308,24 @@
                                 "minimum": 0
                               },
                               {
+                                "allOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 180,
+                                    "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                                  },
+                                  {
+                                    "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/layout/properties/padding/anyOf/1/properties/top/anyOf/0"
+                                  }
+                                ]
+                              },
+                              {
                                 "type": "string",
-                                "minLength": 1,
-                                "maxLength": 180
+                                "maxLength": 180,
+                                "pattern": "^\\$numbers\\.[^.].*$"
                               }
-                            ]
+                            ],
+                            "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                           },
                           "right": {
                             "anyOf": [
@@ -2109,11 +2334,24 @@
                                 "minimum": 0
                               },
                               {
+                                "allOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 180,
+                                    "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                                  },
+                                  {
+                                    "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/layout/properties/padding/anyOf/1/properties/right/anyOf/0"
+                                  }
+                                ]
+                              },
+                              {
                                 "type": "string",
-                                "minLength": 1,
-                                "maxLength": 180
+                                "maxLength": 180,
+                                "pattern": "^\\$numbers\\.[^.].*$"
                               }
-                            ]
+                            ],
+                            "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                           },
                           "bottom": {
                             "anyOf": [
@@ -2122,11 +2360,24 @@
                                 "minimum": 0
                               },
                               {
+                                "allOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 180,
+                                    "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                                  },
+                                  {
+                                    "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/layout/properties/padding/anyOf/1/properties/bottom/anyOf/0"
+                                  }
+                                ]
+                              },
+                              {
                                 "type": "string",
-                                "minLength": 1,
-                                "maxLength": 180
+                                "maxLength": 180,
+                                "pattern": "^\\$numbers\\.[^.].*$"
                               }
-                            ]
+                            ],
+                            "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                           },
                           "left": {
                             "anyOf": [
@@ -2135,11 +2386,24 @@
                                 "minimum": 0
                               },
                               {
+                                "allOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 180,
+                                    "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                                  },
+                                  {
+                                    "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/layout/properties/padding/anyOf/1/properties/left/anyOf/0"
+                                  }
+                                ]
+                              },
+                              {
                                 "type": "string",
-                                "minLength": 1,
-                                "maxLength": 180
+                                "maxLength": 180,
+                                "pattern": "^\\$numbers\\.[^.].*$"
                               }
-                            ]
+                            ],
+                            "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                           }
                         },
                         "additionalProperties": false
@@ -2217,11 +2481,24 @@
                     "exclusiveMinimum": 0
                   },
                   {
+                    "allOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 180,
+                        "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                      },
+                      {
+                        "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/fontSize/anyOf/0"
+                      }
+                    ]
+                  },
+                  {
                     "type": "string",
-                    "minLength": 1,
-                    "maxLength": 180
+                    "maxLength": 180,
+                    "pattern": "^\\$numbers\\.[^.].*$"
                   }
-                ]
+                ],
+                "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
               },
               "lineHeight": {
                 "anyOf": [
@@ -2232,11 +2509,24 @@
                         "exclusiveMinimum": 0
                       },
                       {
+                        "allOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 180,
+                            "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                          },
+                          {
+                            "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/lineHeight/anyOf/0/anyOf/0"
+                          }
+                        ]
+                      },
+                      {
                         "type": "string",
-                        "minLength": 1,
-                        "maxLength": 180
+                        "maxLength": 180,
+                        "pattern": "^\\$numbers\\.[^.].*$"
                       }
-                    ]
+                    ],
+                    "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                   },
                   {
                     "type": "string",
@@ -2286,11 +2576,24 @@
                         "type": "number"
                       },
                       {
+                        "allOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 180,
+                            "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                          },
+                          {
+                            "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/letterSpacing/anyOf/0/anyOf/0"
+                          }
+                        ]
+                      },
+                      {
                         "type": "string",
-                        "minLength": 1,
-                        "maxLength": 180
+                        "maxLength": 180,
+                        "pattern": "^\\$numbers\\.[^.].*$"
                       }
-                    ]
+                    ],
+                    "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                   },
                   {
                     "type": "object",
@@ -2376,11 +2679,24 @@
                           "exclusiveMinimum": 0
                         },
                         {
+                          "allOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 180,
+                              "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                            },
+                            {
+                              "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/textRuns/items/properties/fontSize/anyOf/0"
+                            }
+                          ]
+                        },
+                        {
                           "type": "string",
-                          "minLength": 1,
-                          "maxLength": 180
+                          "maxLength": 180,
+                          "pattern": "^\\$numbers\\.[^.].*$"
                         }
-                      ]
+                      ],
+                      "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                     },
                     "lineHeight": {
                       "anyOf": [
@@ -2391,11 +2707,24 @@
                               "exclusiveMinimum": 0
                             },
                             {
+                              "allOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 180,
+                                  "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                                },
+                                {
+                                  "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/textRuns/items/properties/lineHeight/anyOf/0/anyOf/0"
+                                }
+                              ]
+                            },
+                            {
                               "type": "string",
-                              "minLength": 1,
-                              "maxLength": 180
+                              "maxLength": 180,
+                              "pattern": "^\\$numbers\\.[^.].*$"
                             }
-                          ]
+                          ],
+                          "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                         },
                         {
                           "type": "string",
@@ -2445,11 +2774,24 @@
                               "type": "number"
                             },
                             {
+                              "allOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 180,
+                                  "pattern": "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+                                },
+                                {
+                                  "$ref": "#/definitions/CodexFigmaDesignSpec/properties/nodes/items/properties/textRuns/items/properties/letterSpacing/anyOf/0/anyOf/0"
+                                }
+                              ]
+                            },
+                            {
                               "type": "string",
-                              "minLength": 1,
-                              "maxLength": 180
+                              "maxLength": 180,
+                              "pattern": "^\\$numbers\\.[^.].*$"
                             }
-                          ]
+                          ],
+                          "description": "Число, числовая строка (преобразуется в число) или ссылка $numbers.name. Ограничения числа применяются и к числовой строке."
                         },
                         {
                           "type": "object",

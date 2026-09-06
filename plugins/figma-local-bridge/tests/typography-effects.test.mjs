@@ -90,6 +90,34 @@ async function render(figma, input = renderInput()) {
 async function patch(figma, patches) { return execute(buildPatchCode(patchNodesSchema.parse({ patches })), figma); }
 async function inspect(figma, nodeId) { return (await execute(buildInspectCode({ nodeId, depth: 4, maxNodes: 50 }), figma)).selection[0]; }
 
+test("render принимает числовые строки и сохраняет межстрочный интервал в Figma", async () => {
+  const { figma } = fixture();
+  const { rootId } = await render(figma, renderInput({ lineHeight: "28", fontSize: "20", letterSpacing: "-0.5" }));
+  const title = (await inspect(figma, rootId)).children[0];
+  assert.deepEqual(title.lineHeight, { unit: "PIXELS", value: 28 });
+  assert.equal(title.fontSize, 20);
+  assert.deepEqual(title.letterSpacing, { unit: "PIXELS", value: -0.5 });
+});
+
+test("числовые строки соблюдают пределы; токены, AUTO, Fill/Hug и textRuns сохраняются", () => {
+  const parsed = parseRenderScreenInput(renderInput({ width: "fill", height: "hug", lineHeight: "AUTO",
+    textRuns: [{ start: 0, end: 2, lineHeight: "28" }],
+  }, { cornerRadius: "12", layout: { gap: "-2", padding: { top: "8" } } }));
+  assert.equal(parsed.spec.cornerRadius, 12);
+  assert.equal(parsed.spec.layout.gap, -2);
+  assert.equal(parsed.spec.layout.padding.top, 8);
+  assert.equal(parsed.spec.nodes[0].textRuns[0].lineHeight, 28);
+  assert.equal(parsed.spec.nodes[0].lineHeight, "AUTO");
+  assert.equal(parsed.spec.nodes[0].width, "fill");
+  assert.equal(parsed.spec.nodes[0].height, "hug");
+  for (const lineHeight of ["0", "-1", "28px", "", " ", "NaN", "Infinity", "1e999", "$colors.blue"]) {
+    assert.throws(() => parseRenderScreenInput(renderInput({ lineHeight })), undefined, lineHeight);
+  }
+  assert.throws(() => parseRenderScreenInput(renderInput({ opacity: "1.1" })));
+  assert.throws(() => parseRenderScreenInput(renderInput({ width: "0" })));
+  assert.throws(() => parseRenderScreenInput(renderInput({}, { layout: { padding: "-1" } })));
+});
+
 test("render → inspect сохраняет точную типографику и многослойные тени", async () => {
   const { figma } = fixture();
   const effects = [

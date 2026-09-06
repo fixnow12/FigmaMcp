@@ -1,6 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { runToolOperation } from "../src/tool-results.mjs";
+import { runToolOperation, toolFailure } from "../src/tool-results.mjs";
+import { parseRenderScreenInput } from "../src/schemas.mjs";
+
+test("ошибки схемы возвращают читаемые пути полей без вложенного экранированного JSON", () => {
+  let error;
+  try {
+    parseRenderScreenInput({ spec: { key: "screen", name: "Экран", type: "screen", width: 320, height: 240,
+      nodes: Array.from({ length: 30 }, (_, i) => ({ type: "text", key: `text-${i}`, name: "Текст", content: "А", lineHeight: "28px" })),
+    } });
+  } catch (caught) { error = caught; }
+  assert.ok(error);
+  const result = toolFailure(error);
+  assert.equal(result.isError, true);
+  assert.equal(result.content[0].text, result.structuredContent.error);
+  assert.match(result.content[0].text, /spec\.nodes\[0\]\.lineHeight/);
+  assert.match(result.content[0].text, /Ещё полей с ошибками: 18/);
+  assert.equal(result.content[0].text.includes("unionErrors"), false);
+  assert.equal(result.content[0].text.includes('\\n'), false);
+});
 
 test("ошибка снимка не превращает успешную запись в ошибку инструмента", async () => {
   let writes = 0;
