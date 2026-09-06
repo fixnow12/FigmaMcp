@@ -16,6 +16,12 @@ description: "Работа с открытым файлом Figma Desktop чер
 5. Экземпляры компонентов создавай через `use_component`: локальный источник задаётся `sourceId` или `sourceKey`, библиотечный — `libraryKey`; родитель — `parentId` или `parentKey`.
 6. После записи проверь PNG из ответа инструмента или повтори `inspect_selection` с `screenshot: true`.
 
+## Глубина чтения
+
+- В `inspect_selection` передавай целые числа: `depth` от 0 до 8 (по умолчанию 3), `maxNodes` от 1 до 1000 (по умолчанию 200). `depth` считается от каждого запрошенного узла; 0 возвращает сам узел без детей. Для `nodeIds` допустимо от 1 до 50 ID; не передавай одновременно `nodeId` и `nodeIds`.
+- Для более глубокого дерева читай ветки отдельными вызовами: при `coverage.complete: false` бери `nodeId` из `coverage.unread` и вызывай `inspect_selection` с этим ID, тем же `fileKey`, `detail: "full"` и `depth: 8`. Повторяй для оставшихся непрочитанных веток. Не увеличивай `depth` выше 8 или `maxNodes` выше 1000.
+- Если чтение отклонено с `Input validation error` (может отображаться как `MCP error -32602`), исправь указанное в сообщении поле перед повтором. Например, для `Number must be less than or equal to 8 at depth` уменьши `depth` до 8 и дочитай ветки отдельно; повтор того же запроса не поможет.
+
 ## Точное воссоздание
 
 - Сначала прочитай `detail: "full"` и просмотри PNG исходника. `coverage.complete: false`, `truncated: true` или `childCount > 0` без `children` означает неполное чтение. Дочитай каждую ветку из `coverage.unread` по `nodeId`; не придумывай недостающие тексты и способы оплаты. У старых версий `truncated: false` не учитывал ограничение глубины.
