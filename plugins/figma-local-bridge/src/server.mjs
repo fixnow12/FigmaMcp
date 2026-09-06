@@ -34,7 +34,7 @@ const instructions =
   "для итераций — patch_nodes, для чтения выделения — inspect_selection, для экземпляров — use_component. " +
   "Для подключения и списка файлов используйте get_status. Узлы адресуются стабильным key или id. Не перерисовывайте экран ради точечной правки. " +
   "find_assets находит элементы и ресурсы; clone_nodes копирует готовые блоки; move_nodes переносит и переставляет слои; bind_variables привязывает существующие Variables без изменения их значений. " +
-  "Перед патчем неизвестного дизайна вызовите inspect_selection. Сервер не принимает произвольный JavaScript.";
+  "Перед патчем неизвестного дизайна вызовите inspect_selection. Передавайте выбранный fileKey из get_status во всех вызовах, особенно при переходе от чтения к render_screen. При неоднозначной цели уточните файл у пользователя. Сервер не принимает произвольный JavaScript.";
 
 const bridge = process.env.FIGMA_WS_PORT !== undefined
   ? new FigmaBridge({

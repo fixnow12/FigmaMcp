@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fileKeyDescription } from "./file-target.mjs";
 import { fidelityFields, paintsSchema, textFidelityFields } from "./fidelity.mjs";
 
 const keySchema = z.string().min(1).max(160);
@@ -507,7 +508,7 @@ export const renderScreenInputSchema = {
   position: z.object({ x: z.number(), y: z.number() }).strict().optional(),
   screenshot: z.boolean().optional(),
   screenshotScale: z.number().min(0.5).max(4).optional(),
-  fileKey: z.string().min(1).optional(),
+  fileKey: z.string().min(1).optional().describe(fileKeyDescription),
 };
 
 export const renderScreenSchema = z.object({
@@ -629,7 +630,7 @@ export const patchNodesInputSchema = {
   ignoreMissing: z.boolean().optional(),
   screenshotKey: keySchema.optional(),
   screenshotScale: z.number().min(0.5).max(4).optional(),
-  fileKey: z.string().min(1).optional(),
+  fileKey: z.string().min(1).optional().describe(fileKeyDescription),
 };
 export const patchNodesSchema = z.object(patchNodesInputSchema).strict().superRefine((input, context) => {
   const keys = new Set();
@@ -661,7 +662,7 @@ export const inspectSelectionInputSchema = {
   screenshot: z.boolean().optional(),
   screenshotScale: z.number().min(0.5).max(4).optional(),
   includeFiles: z.boolean().optional(),
-  fileKey: z.string().min(1).optional(),
+  fileKey: z.string().min(1).optional().describe(fileKeyDescription),
 };
 export const inspectSelectionSchema = z.object(inspectSelectionInputSchema).strict().refine(
   (input) => !(input.nodeId && input.nodeIds), "Укажите nodeId или nodeIds, но не оба поля",
@@ -680,7 +681,7 @@ export const useComponentInputSchema = {
   position: z.object({ x: z.number(), y: z.number() }).strict().optional(),
   screenshot: z.boolean().optional(),
   screenshotScale: z.number().min(0.5).max(4).optional(),
-  fileKey: z.string().min(1).optional(),
+  fileKey: z.string().min(1).optional().describe(fileKeyDescription),
 };
 
 export const useComponentSchema = z
