@@ -21,7 +21,9 @@ try {
   const { tools } = await client.listTools();
   const name = positionals[0];
   if (!name || name === 'list') {
-    console.log(JSON.stringify(tools, null, 2));
+    const selected = positionals[1] ? tools.filter(tool => tool.name === positionals[1]) : tools;
+    if (!selected.length) throw new Error(`Инструмент ${positionals[1]} отсутствует в ${pluginRoot}`);
+    console.log(JSON.stringify(selected, null, 2));
   } else {
     if (!tools.some(tool => tool.name === name)) throw new Error(`Инструмент ${name} отсутствует в ${pluginRoot}`);
     const args = values.args ? JSON.parse(await readFile(resolve(values.args), 'utf8')) : {};

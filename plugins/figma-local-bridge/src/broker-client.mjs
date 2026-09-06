@@ -2,6 +2,7 @@ import { WebSocket } from 'ws';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { remoteError } from './bridge-errors.mjs';
 import channel from './secure-channel.cjs';
 import { installationDirectory, loadInstallation, identityFor } from './installation.mjs';
 
@@ -60,7 +61,7 @@ export class BrokerClient {
               if (!pending) return;
               clearTimeout(pending.timer);
               this.pending.delete(message.id);
-              if (message.error) pending.reject(new Error(message.error));
+              if (message.error) pending.reject(remoteError(message.error, message.errorDetails));
               else pending.resolve(message.result);
             },
             onClose: () => this.connectionLost(),

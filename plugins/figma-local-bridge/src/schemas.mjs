@@ -670,8 +670,8 @@ export const patchNodesSchema = z.object(patchNodesInputSchema).strict().superRe
 
 export const inspectSelectionInputSchema = {
   nodeId: z.string().min(1).max(160).optional(),
-  nodeIds: z.array(z.string().min(1).max(160)).min(1).max(50).optional(),
-  detail: z.enum(["compact", "full"]).optional(),
+  nodeIds: z.array(z.string().min(1).max(160)).min(1).max(50).optional().describe('Массив из 1–50 ID. Не объединяйте разные ID в строку nodeId. Передавайте только nodeId или только nodeIds.'),
+  detail: z.enum(["compact", "full"]).optional().describe('compact по умолчанию: структура и основные свойства. Для точных шрифтов, цветов, textRuns и сравнения оформления сразу передавайте full.'),
   depth: z.number().int().min(0).max(8).optional().describe("Глубина от запрошенного узла: целое 0–8, по умолчанию 3; 0 — без детей. Более глубокие ветки дочитывайте отдельными вызовами по nodeId из coverage.unread, сохраняя depth ≤ 8."),
   maxNodes: z.number().int().min(1).max(1000).optional().describe("Общий лимит узлов на вызов: целое 1–1000, по умолчанию 200. При неполном обходе дочитывайте узлы из coverage.unread отдельными вызовами."),
   screenshot: z.boolean().optional(),

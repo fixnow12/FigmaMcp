@@ -653,6 +653,10 @@
           }
         }
 
+        if (type === 'EXECUTE_CODE') message.expiresAt = Math.min(
+          Date.now() + (params.timeout || 5000),
+          typeof params.expiresAt === 'number' ? params.expiresAt : Infinity);
+
         parent.postMessage({ pluginMessage: message }, '*');
         console.log('[MCP Bridge] Sent:', type);
       });
@@ -662,8 +666,29 @@
     // VARIABLE OPERATIONS
     // ============================================================================
 
-    window.executeCode = (code, timeout, operation) => {
-      return window.sendPluginCommand('EXECUTE_CODE', { code: code, timeout: timeout || 5000, operation: operation }, (timeout || 5000) + 2000)
+    window.ensurePluginReady = async function() {
+      var status;
+      try {
+        status = await window.sendPluginCommand('GET_EXECUTION_STATUS', {}, 2000);
+        if (!status.success || typeof status.busy !== 'boolean') throw new Error('Invalid readiness response');
+      } catch (_) {
+        var unavailable = new Error('Figma Plugin API не ответил на проверку готовности. Команда не отправлена.');
+        unavailable.operationStatus = 'not_applied';
+        unavailable.code = 'PLUGIN_UNRESPONSIVE';
+        unavailable.nextStep = 'Откройте целевую вкладку Figma Desktop и оставьте Bridge открытым. Если вкладка уже активна, проверьте журнал и обновление плагина. Не повторяйте запросы с sleep: WebSocket может оставаться подключённым при отсутствии ответа Plugin API.';
+        throw unavailable;
+      }
+      if (status.busy) {
+        var busy = new Error('Предыдущая команда ещё выполняется в Figma Plugin API. Новая команда не отправлена.');
+        busy.operationStatus = 'not_applied';
+        busy.code = 'PLUGIN_BUSY';
+        busy.nextStep = 'Проверьте выполнение в окне Bridge. Если предыдущая запись завершилась тайм-аутом, её результат неизвестен; после восстановления сначала прочитайте затронутые узлы. Не запускайте цикл повторов.';
+        throw busy;
+      }
+    };
+
+    window.executeCode = (code, timeout, operation, expiresAt) => {
+      return window.sendPluginCommand('EXECUTE_CODE', { code: code, timeout: timeout || 5000, operation: operation, expiresAt: expiresAt }, (timeout || 5000) + 2000)
         .catch(function(err) { return { success: false, error: err.message || String(err), operationStatus: err.operationStatus || 'unknown' }; });
     };
 
@@ -1063,7 +1088,7 @@
 
       // Method-to-function mapping
       var methodMap = {
-        'EXECUTE_CODE': function(params) { return window.executeCode(params.code, params.timeout, params.operation); },
+        'EXECUTE_CODE': function(params) { return window.executeCode(params.code, params.timeout, params.operation, params.expiresAt); },
         'UPDATE_VARIABLE': function(params) { return window.updateVariable(params.variableId, params.modeId, params.value); },
         'CREATE_VARIABLE': function(params) { return window.createVariable(params.name, params.collectionId, params.resolvedType, params); },
         'DELETE_VARIABLE': function(params) { return window.deleteVariable(params.variableId); },
@@ -1301,7 +1326,9 @@
         window.sendPluginCommand('GET_FILE_INFO', {})
           .then(function(info) {
             if (connWs.readyState === 1 && info && info.success !== false) {
-              connWs.send(JSON.stringify({ type: 'FILE_INFO', data: info.fileInfo || info }));
+              var fileInfo = info.fileInfo || info;
+              fileInfo.pluginBuild = window.__FIGMA_LOCAL_BUILD__ || null;
+              connWs.send(JSON.stringify({ type: 'FILE_INFO', data: fileInfo }));
             }
           })
           .catch(function() { /* non-critical */ });
@@ -1519,7 +1546,26 @@
             }
 
             // Call the handler (returns a Promise) and send back the result
-            Promise.resolve(handler(message.params || {}))
+            function checkDeadline() {
+              if (typeof message.expiresAt === 'number' && Date.now() >= message.expiresAt) {
+                var expired = new Error('Срок ожидания команды истёк до выполнения. Команда не отправлена в Plugin API.');
+                expired.operationStatus = 'not_applied';
+                expired.code = 'COMMAND_EXPIRED';
+                expired.nextStep = 'После восстановления прочитайте целевой макет и проверьте актуальность запроса перед новой операцией.';
+                throw expired;
+              }
+            }
+            Promise.resolve()
+              .then(function() {
+                checkDeadline();
+                if (message.method === 'EXECUTE_CODE' || message.method === 'CAPTURE_SCREENSHOT') return window.ensurePluginReady();
+              })
+              .then(function() {
+                checkDeadline();
+                var params = message.params || {};
+                if (typeof message.expiresAt === 'number') params.expiresAt = message.expiresAt;
+                return handler(params);
+              })
               .then(function(result) {
                 if (activeWs.readyState === 1) {
                   activeWs.send(JSON.stringify({ id: message.id, result: result }));
@@ -1527,7 +1573,8 @@
               })
               .catch(function(err) {
                 if (activeWs.readyState === 1) {
-                  activeWs.send(JSON.stringify({ id: message.id, error: err.message || String(err) }));
+                  activeWs.send(JSON.stringify({ id: message.id, error: err.message || String(err),
+                    errorDetails: { operationStatus: err.operationStatus, code: err.code, nextStep: err.nextStep } }));
                 }
               });
           } catch (e) {
@@ -2207,6 +2254,7 @@
             if (msg.warnings !== undefined) result.warnings = msg.warnings;
             if (msg.updatedCount !== undefined) result.updatedCount = msg.updatedCount;
             if (msg.nodes !== undefined) result.nodes = msg.nodes;
+            if (msg.busy !== undefined) result.busy = msg.busy;
             // EXECUTE_CODE reports these two: resultAnalysis (silent-failure
             // hints, which figma_execute's own description tells callers to
             // check) and fileContext (the file the code actually ran in, which
@@ -2224,6 +2272,9 @@
 
       // Handle message types
       switch (msg.type) {
+        case 'GET_EXECUTION_STATUS_RESULT':
+          handleResult('GET_EXECUTION_STATUS');
+          break;
         case 'VARIABLES_DATA':
           window.__figmaVariablesData = msg.data;
           window.__figmaVariablesReady = true;

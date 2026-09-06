@@ -20,8 +20,11 @@ test('полный установленный UI: auto auth → FILE_INFO → к
   // Only the test listener port differs; execute every generated script verbatim.
   html = html.replace('var WS_PORT_RANGE_START = 9233;', `var WS_PORT_RANGE_START = ${broker.bridge.port};`).replace('var WS_PORT_RANGE_END = 9233;', `var WS_PORT_RANGE_END = ${broker.bridge.port};`);
   const timers = new Set(), sockets = [], commands = [], errors = [];
+  let busy = false, responsive = true;
+  let clockOffset = 0;
   const context = {
     TextEncoder, TextDecoder, Uint8Array, DataView, AbortSignal,
+    Date: class extends Date { static now() { return Date.now() + clockOffset; } },
     crypto: { getRandomValues: array => webcrypto.getRandomValues(array) },
     console: { log() {}, warn() {}, error(...args) { errors.push(args); } },
     document: { getElementById: () => null, querySelector: () => null, body: { setAttribute() {} }, documentElement: { classList: { contains: () => false } } },
@@ -35,8 +38,10 @@ test('полный установленный UI: auto auth → FILE_INFO → к
     parent: { postMessage({ pluginMessage: message }) {
       if (message.type === 'RESIZE_UI') return;
       commands.push(message.type);
+      if (message.type === 'GET_EXECUTION_STATUS' && !responsive) return;
       const response = { requestId: message.requestId, type: `${message.type}_RESULT`, success: true };
       if (message.type === 'GET_FILE_INFO') response.fileInfo = { fileKey: 'ui-file', fileName: 'Runtime test', pluginVersion: '0.3.0' };
+      else if (message.type === 'GET_EXECUTION_STATUS') response.busy = busy;
       else if (message.type === 'EXECUTE_CODE') { response.result = { marker: 'executed' }; response.fileContext = { fileKey: 'ui-file' }; }
       queueMicrotask(() => context.onmessage({ data: { pluginMessage: response } }));
     } },
@@ -54,6 +59,37 @@ test('полный установленный UI: auto auth → FILE_INFO → к
   const client = new BrokerClient({ directory, ports: [broker.bridge.port], autoStart: false }); t.after(() => client.stop());
   assert.deepEqual((await client.execute('return 1')).result, { marker: 'executed' });
   assert.equal(commands.filter(type => type === 'EXECUTE_CODE').length, 1);
+  assert.match((await client.status()).files[0].pluginBuild, /^[a-f0-9]{16}$/);
+  busy = true;
+  await assert.rejects(client.execute('return 2'), error => {
+    assert.equal(error.code, 'PLUGIN_BUSY');
+    assert.equal(error.operationStatus, 'not_applied');
+    assert.match(error.nextStep, /Не запускайте цикл/);
+    return true;
+  });
+  await assert.rejects(client.captureScreenshot('1:2'), error => error.code === 'PLUGIN_BUSY');
+  assert.equal(commands.filter(type => type === 'EXECUTE_CODE').length, 1);
+  assert.equal(commands.includes('CAPTURE_SCREENSHOT'), false);
+  busy = false;
+  responsive = false;
+  await assert.rejects(client.execute('return 3'), error => {
+    assert.equal(error.code, 'PLUGIN_UNRESPONSIVE');
+    assert.equal(error.operationStatus, 'not_applied');
+    assert.match(error.nextStep, /целевую вкладку/);
+    return true;
+  });
+  assert.equal(commands.filter(type => type === 'EXECUTE_CODE').length, 1, 'неответивший probe не должен отправлять код в отложенное выполнение');
+  responsive = true;
+  assert.deepEqual((await client.execute('return 4')).result, { marker: 'executed' });
+  // Simulate the iframe receiving a WS command after its original deadline.
+  clockOffset = 120000;
+  await assert.rejects(client.execute('return 5'), error => {
+    assert.equal(error.code, 'COMMAND_EXPIRED');
+    assert.equal(error.operationStatus, 'not_applied');
+    return true;
+  });
+  assert.equal(commands.filter(type => type === 'EXECUTE_CODE').length, 2);
+  clockOffset = 0;
   context.__wsDisconnectAll();
   await waitFor(() => !broker.bridge.status().connected);
   assert.equal(context.__wsIsPaused(), true);

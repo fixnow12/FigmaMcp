@@ -10,6 +10,7 @@ import { buildCloneCode, buildMoveCode } from "./scene-operations.mjs";
 import { buildFindAssetsCode } from "./asset-catalog.mjs";
 import { buildBindVariablesCode } from "./variable-bindings.mjs";
 import { BrokerClient } from "./broker-client.mjs";
+import { runtimeDiagnostics } from "./runtime-info.mjs";
 import { exportAssetsInputSchema, exportAssetsSchema, buildExportAssetsCode } from "./export-assets.mjs";
 import { recreateScreenInputSchema, recreateScreen } from "./reconstruction.mjs";
 import {
@@ -64,11 +65,14 @@ server.registerTool("get_status", {
   inputSchema: {},
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
 }, async () => {
-  const status = await bridge.status();
-  if (!status.connected && typeof bridge.getPairingReference === "function") {
-    status.pairingReference = bridge.getPairingReference();
-  }
-  return ok(status);
+  try {
+    const status = await bridge.status();
+    status.diagnostics = runtimeDiagnostics(status);
+    if (!status.connected && typeof bridge.getPairingReference === "function") {
+      status.pairingReference = bridge.getPairingReference();
+    }
+    return ok(status);
+  } catch (error) { return fail(error); }
 });
 
 server.registerTool(
