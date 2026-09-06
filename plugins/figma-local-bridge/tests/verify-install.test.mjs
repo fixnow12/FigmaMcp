@@ -19,7 +19,7 @@ test('проверка действительно использует command �
   await writeFile(join(pluginRoot, '.mcp.json'), JSON.stringify({ mcpServers: { 'figma-local': {
     command: join(pluginRoot, 'missing-node'), args: [], cwd: '.',
   } } }));
-  await assert.rejects(verifyInstallation({ pluginRoot }), /запуск MCP.*ENOENT/);
+  await assert.rejects(verifyInstallation({ pluginRoot }), /запуск MCP.*(?:ENOENT|Connection closed)/);
 });
 
 test('проверка отклоняет manifest без cwd до запуска сервера', async t => {

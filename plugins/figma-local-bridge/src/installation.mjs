@@ -12,7 +12,8 @@ $ErrorActionPreference = 'Stop'
 $path = $env:FIGMA_PRIVATE_PATH
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $system = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')
-$acl = Get-Acl -LiteralPath $path
+$item = Get-Item -LiteralPath $path -Force
+$acl = $item.GetAccessControl()
 if ($acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'Installation must belong to the current user' }
 ${set ? `
 $acl = New-Object System.Security.AccessControl.DirectorySecurity
@@ -22,8 +23,8 @@ foreach ($principal in @($sid, $system)) {
   $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($principal, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
   $acl.AddAccessRule($rule)
 }
-Set-Acl -LiteralPath $path -AclObject $acl
-$acl = Get-Acl -LiteralPath $path
+$item.SetAccessControl($acl)
+$acl = $item.GetAccessControl()
 ` : ''}
 foreach ($rule in $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
   if ($rule.AccessControlType -eq 'Allow' -and $rule.IdentityReference.Value -notin @($sid.Value, $system.Value)) { throw 'Installation permissions are not private' }
