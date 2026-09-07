@@ -38,7 +38,7 @@ jobs:
         run: node scripts/validate-repo.mjs
       - name: Dependency audit
         working-directory: plugins/figma-local-bridge
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=moderate
 
   secrets:
     runs-on: ubuntu-latest
