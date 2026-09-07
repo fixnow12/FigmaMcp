@@ -4,10 +4,31 @@ import { mkdtemp, cp, readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { verifyInstallation } from '../scripts/verify-install.mjs';
+import { verifyInstallation, runtimeVersionsCurrent } from '../scripts/verify-install.mjs';
 import { verifyCodexInstallation } from '../scripts/verify-codex-install.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+test('актуальность требует подтверждения MCP, broker и каждого подключённого плагина', () => {
+  const status = { connected: true, runtime: { revision: 'current' },
+    diagnostics: { sourceRevision: 'current', mcp: { revision: 'current' }, expectedPluginBuild: 'plugin' },
+    files: [{ pluginBuild: 'plugin' }, { pluginBuild: 'plugin' }] };
+  assert.equal(runtimeVersionsCurrent(status), true);
+  for (const change of [
+    value => { delete value.runtime; },
+    value => { value.runtime.revision = 'old'; },
+    value => { value.diagnostics.mcp.revision = 'old'; },
+    value => { delete value.files[1].pluginBuild; },
+    value => { value.files[1].pluginBuild = 'old'; },
+    value => { delete value.diagnostics; },
+    value => { value.files = []; },
+    value => { value.connected = false; },
+  ]) {
+    const stale = structuredClone(status);
+    change(stale);
+    assert.equal(runtimeVersionsCurrent(stale), false);
+  }
+});
+
 async function temporary(t) {
   const directory = await mkdtemp(join(tmpdir(), 'figma-verify-'));
   t.after(() => rm(directory, { recursive: true, force: true }));

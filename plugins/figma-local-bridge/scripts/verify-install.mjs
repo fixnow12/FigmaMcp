@@ -8,7 +8,16 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-export async function verifyInstallation({ pluginRoot = sourceRoot, opencode = false, live = false, screenshot = false, env = process.env } = {}) {
+export function runtimeVersionsCurrent(status) {
+  const diagnostics = status.diagnostics;
+  const revision = diagnostics?.sourceRevision;
+  const pluginBuild = diagnostics?.expectedPluginBuild;
+  return Boolean(status.connected && revision && pluginBuild &&
+    diagnostics.mcp?.revision === revision && status.runtime?.revision === revision &&
+    status.files?.length && status.files.every(file => file.pluginBuild === pluginBuild));
+}
+
+export async function verifyInstallation({ pluginRoot = sourceRoot, opencode = false, live = false, screenshot = false, requireCurrent = false, env = process.env } = {}) {
 pluginRoot = resolve(pluginRoot);
 const configPath = opencode ? resolve(pluginRoot, '../../opencode.json') : resolve(pluginRoot, '.mcp.json');
 const manifest = JSON.parse(await readFile(configPath, 'utf8'));
@@ -63,7 +72,7 @@ try {
   const report = { pluginRoot, configPath, command: config.command, tools: actualTools,
     inspectFields: Object.keys(inspect), liveChecked: false,
     note: 'Проверен новый MCP-процесс из конфигурации. Каталог уже открытого чата может быть устаревшим: переподключите MCP и откройте новый чат.' };
-  if (!live && !screenshot) return report;
+  if (!live && !screenshot && !requireCurrent) return report;
   async function call(name, args = {}) {
     const response = await client.callTool({ name, arguments: args }, undefined, { timeout: 20000 });
     const payload = response.structuredContent || JSON.parse(response.content.find(item => item.type === 'text').text);
@@ -73,6 +82,13 @@ try {
   stage = 'подключение Bridge к Figma';
   const { payload: status } = await call('get_status');
   assert.ok(status.connected && status.files?.length, 'MCP работает, но файл Figma не подключён. Откройте Bridge — Auto в целевом файле.');
+  report.diagnostics = status.diagnostics || null;
+  report.runtimeCurrent = runtimeVersionsCurrent(status);
+  if (requireCurrent) {
+    stage = 'актуальность работающих MCP, broker и плагина Figma';
+    assert.ok(report.runtimeCurrent, status.diagnostics?.warnings?.join(' ') ||
+      'Работающие процессы не подтверждают текущие ревизии. Обновите установку и перезапустите Bridge и MCP после завершения операций.');
+  }
   report.files = [];
   for (const file of status.files) {
     stage = `чтение Figma (${file.fileName || file.fileKey})`;
@@ -102,8 +118,8 @@ try {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const { values } = parseArgs({ options: { 'plugin-root': { type: 'string' }, opencode: { type: 'boolean' }, live: { type: 'boolean' }, screenshot: { type: 'boolean' } } });
-    const report = await verifyInstallation({ pluginRoot: values['plugin-root'], opencode: values.opencode, live: values.live, screenshot: values.screenshot });
+    const { values } = parseArgs({ options: { 'plugin-root': { type: 'string' }, opencode: { type: 'boolean' }, live: { type: 'boolean' }, screenshot: { type: 'boolean' }, 'require-current': { type: 'boolean' } } });
+    const report = await verifyInstallation({ pluginRoot: values['plugin-root'], opencode: values.opencode, live: values.live, screenshot: values.screenshot, requireCurrent: values['require-current'] });
     console.log(JSON.stringify(report, null, 2));
     if (!report.liveChecked) console.log('MCP-контракт проверен. Соединение с Figma не проверялось; для этого запустите verify -- --live --screenshot.');
   } catch (error) {
