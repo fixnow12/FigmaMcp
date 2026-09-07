@@ -45,6 +45,7 @@ export function fidelityFields() {
     strokeTopWeight: z.number().nonnegative().optional(), strokeBottomWeight: z.number().nonnegative().optional(),
     strokeLeftWeight: z.number().nonnegative().optional(), strokeRightWeight: z.number().nonnegative().optional(),
     dashPattern: z.array(z.number().nonnegative()).max(100).optional(),
+    isMask: z.boolean().optional(), maskType: z.enum(["ALPHA", "VECTOR", "LUMINANCE"]).optional(),
     blendMode: z.union([blend(), z.literal("PASS_THROUGH")]).optional(),
     x: z.number().optional(), y: z.number().optional(), rotation: z.number().optional(),
     layoutPositioning: z.enum(["AUTO", "ABSOLUTE"]).optional(),
@@ -64,7 +65,7 @@ export function textFidelityFields() {
 
 // Serialized with the compiler; only documented, allowlisted properties are assigned.
 export function createFidelityRuntime(figma) {
-  const fields = ["topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius", "cornerSmoothing", "strokeAlign", "strokeTopWeight", "strokeBottomWeight", "strokeLeftWeight", "strokeRightWeight", "dashPattern", "blendMode", "rotation", "layoutPositioning", "constraints", "minWidth", "maxWidth", "minHeight", "maxHeight"];
+  const fields = ["isMask", "maskType", "topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius", "cornerSmoothing", "strokeAlign", "strokeTopWeight", "strokeBottomWeight", "strokeLeftWeight", "strokeRightWeight", "dashPattern", "blendMode", "rotation", "layoutPositioning", "constraints", "minWidth", "maxWidth", "minHeight", "maxHeight"];
   async function validate(item, node) {
     for (const field of [...fields, "fills", "strokes", "fillStyleId", "strokeStyleId"]) {
       if (node && item[field] !== undefined && !(field in node)) throw new Error("Узел не поддерживает " + field + ": " + node.name);

@@ -28,6 +28,9 @@ jobs:
       - name: Unit tests
         working-directory: plugins/figma-local-bridge
         run: npm test
+      - name: Check generated schema
+        working-directory: plugins/figma-local-bridge
+        run: npm run schema:check
       - name: MCP contract
         working-directory: plugins/figma-local-bridge
         run: npm run verify

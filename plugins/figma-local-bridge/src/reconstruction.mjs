@@ -42,17 +42,26 @@ function resolved(value) {
   return Object.fromEntries(Object.entries(value).filter(([k]) => !["boundVariables", "textStyleId"].includes(k)).map(([k, v]) => [k, resolved(v)]));
 }
 
-export function buildReconstructionRead(sourceId) {
+export function buildReconstructionRead(sourceId, changes = []) {
   return `
 const snapshot = await (async () => { ${buildInspectCode({ nodeId: sourceId, detail: "full", depth: 64, maxNodes: 2000 })} })();
+const discarded = new Set(${JSON.stringify(changes.filter(change => ["remove", "replace"].includes(change.action)).map(change => change.sourceId))});
 const svgAssets = {};
 let svgBytes = 0;
 const fontErrors = [];
 const fonts = new Map();
 async function collect(item) {
-  if (item.effectiveVisible === false) return;
+  if (item.effectiveVisible === false || discarded.has(item.id)) return;
   if (item.fontFamily && item.fontStyle) fonts.set(JSON.stringify([item.fontFamily, item.fontStyle]), { family: item.fontFamily, style: item.fontStyle });
   for (const run of item.textRuns || []) if (run.fontFamily && run.fontStyle) fonts.set(JSON.stringify([run.fontFamily, run.fontStyle]), { family: run.fontFamily, style: run.fontStyle });
+  // A mask is not painted on its own: SVG export can be empty, especially
+  // inside instances. Read its resolved fill contours without touching it.
+  if (item.isMask && ${JSON.stringify([...geometry])}.includes(item.type) && !item.vectorPaths?.length) {
+    if (!item.fillGeometry?.length) throw new Error("Не прочитана геометрия маски: " + item.id + " (" + item.name + ")");
+    item.vectorPaths = item.fillGeometry;
+    // fillGeometry already includes rounded corners.
+    item.cornerRadius = 0;
+  }
   if (${JSON.stringify([...geometry])}.includes(item.type) && !item.vectorPaths?.length) {
     const node = await figma.getNodeByIdAsync(item.id);
     let svg;
@@ -80,25 +89,49 @@ export function compileReconstruction(read, { key, name, changes = [] }) {
   const root = snapshot.selection[0];
   if (root.effectiveVisible === false) throw new Error("Исходный экран скрыт. Выберите видимый экран.");
   if (!["FRAME", "INSTANCE", "COMPONENT"].includes(root.type)) throw new Error("Для воссоздания выберите фрейм или экземпляр экрана.");
+  const discarded = new Set(changes.filter(change => ["remove", "replace"].includes(change.action)).map(change => change.sourceId));
+  if (discarded.has(root.id)) throw new Error("Корень экрана нельзя удалить или заменить; меняйте его свойства или дочерние блоки.");
   const visibleIds = new Set();
+  const reflectedVectors = new Map();
   let skippedHidden = 0;
   function visible(item, hidden = false) {
     const skip = hidden || item.effectiveVisible === false;
     if (skip) skippedHidden++; else visibleIds.add(item.id);
+    if (discarded.has(item.id)) return;
+    const t = item.relativeTransform;
+    // Reapply a native vector's orthogonal reflection after building it.
+    // Skew and reflected containers still need separate support.
+    if (!skip && item.type === "VECTOR" && item.vectorPaths?.length && t &&
+        t[0][0] * t[1][1] - t[0][1] * t[1][0] < 0 &&
+        Math.abs(t[0][0] ** 2 + t[1][0] ** 2 - 1) < 0.001 &&
+        Math.abs(t[0][1] ** 2 + t[1][1] ** 2 - 1) < 0.001 &&
+        Math.abs(t[0][0] * t[0][1] + t[1][0] * t[1][1]) < 0.001) reflectedVectors.set(item.id, t);
     for (const child of item.children || []) visible(child, skip);
   }
   visible(root);
-  const blockers = (snapshot.fidelityWarnings || []).filter(w => visibleIds.has(w.nodeId));
-  if (blockers.length) throw new Error("Точное воссоздание остановлено: " + blockers.slice(0, 12).map(w => `${w.nodeId}: ${w.feature}`).join("; ") + ". Эти свойства требуют отдельной поддержки; приближённая замена не выполнена.");
+  const blockers = (snapshot.fidelityWarnings || []).filter(w => visibleIds.has(w.nodeId) && !discarded.has(w.nodeId) && !(w.feature === "affine_transform" && reflectedVectors.has(w.nodeId)));
+  if (blockers.length) {
+    const names = new Map();
+    function index(item) { names.set(item.id, item.name); for (const child of item.children || []) index(child); }
+    index(root);
+    throw Object.assign(new Error("Сборка остановлена до записи: " + blockers.map(w => `${w.nodeId} (${names.get(w.nodeId)}): ${w.feature}`).join("; ") + ". Видеозаливки и другие неподдержанные свойства не заменяются автоматически."), {
+      code: "RECONSTRUCTION_BLOCKED", operationStatus: "not_applied",
+      blockers: blockers.map(w => ({ ...w, name: names.get(w.nodeId) })),
+      nextStep: "Проверьте blockers. Выберите меньший блок или передайте remove/replace только для изменений, запрошенных пользователем. Повтор без изменения параметров не поможет.",
+    });
+  }
   const mappings = [], nodes = [];
   function convert(item, parent, index, isRoot = false, sourceParent = null) {
+    // Keep only an addressable placeholder for an explicitly removed/replaced
+    // branch. Its resources and unsupported properties never reach the new plan.
+    if (discarded.has(item.id)) item = { id: item.id, name: item.name, type: "FRAME", bounds: item.bounds,
+      rotation: item.rotation, absoluteBoundingBox: item.absoluteBoundingBox, layoutPositioning: item.layoutPositioning, layout: { mode: "NONE" } };
     const nodeKey = isRoot ? key : `${key}:${mappings.length}`;
     const isVector = geometry.has(item.type) && item.vectorPaths?.length > 0;
     const isSvg = geometry.has(item.type) && !isVector;
     const type = isRoot ? "screen" : isSvg ? "svg" : isVector ? "vector" : containers.has(item.type) ? "frame" : { TEXT: "text", RECTANGLE: "rectangle", ELLIPSE: "ellipse", LINE: "line" }[item.type];
     if (!type) throw new Error(`Не поддержан тип ${item.type}: ${item.id}. Сборка остановлена до записи.`);
-    if (item.type === "GROUP" && Math.abs(item.rotation || 0) > 0.001) throw new Error(`Поворот группы требует отдельной поддержки: ${item.id}`);
-    if (!(item.bounds.width > 0 && (item.bounds.height > 0 || type === "line" && item.bounds.height === 0))) throw new Error(`Нулевой размер узла ${item.id}; точное воссоздание не поддержано.`);
+    if (!discarded.has(item.id) && !(item.bounds.width > 0 && (item.bounds.height > 0 || type === "line" && item.bounds.height === 0))) throw new Error(`Нулевой размер узла ${item.id}; точное воссоздание не поддержано.`);
     const out = { key: nodeKey, name: isRoot ? name || `${item.name} — воссоздание` : item.name, type, width: item.bounds.width, height: item.bounds.height };
     if (!isRoot) { out.parentKey = parent.key; out.order = index; }
     if (isSvg) {
@@ -110,8 +143,8 @@ export function compileReconstruction(read, { key, name, changes = [] }) {
       if (item.layoutPositioning !== undefined) out.layoutPositioning = item.layoutPositioning;
     } else {
       for (const field of [...fields, "opacity", "visible", "effects"]) if (item[field] !== undefined && item[field] !== "MIXED") out[field] = resolved(item[field]);
-      if (["frame", "screen", "rectangle", "vector"].includes(type) && item.cornerRadius !== undefined) out.cornerRadius = item.cornerRadius;
-      if (["frame", "screen", "rectangle", "ellipse", "line", "vector"].includes(type) && item.strokeWidth !== undefined) out.strokeWidth = item.strokeWidth;
+      if (["frame", "screen", "rectangle", "vector"].includes(type) && typeof item.cornerRadius === "number") out.cornerRadius = item.cornerRadius;
+      if (["frame", "screen", "rectangle", "ellipse", "line", "vector"].includes(type) && typeof item.strokeWidth === "number") out.strokeWidth = item.strokeWidth;
       if (["line", "vector"].includes(type)) for (const f of ["strokeCap", "strokeJoin"]) if (item[f] !== undefined) out[f] = item[f];
       if (isVector) out.vectorPaths = item.vectorPaths;
       if (["frame", "screen"].includes(type)) {
@@ -139,8 +172,25 @@ export function compileReconstruction(read, { key, name, changes = [] }) {
       // children use the frame itself, so remove the group's own translation.
       out.x = item.bounds.x - (sourceParent?.type === "GROUP" ? sourceParent.bounds.x : 0);
       out.y = item.bounds.y - (sourceParent?.type === "GROUP" ? sourceParent.bounds.y : 0);
+      if (sourceParent?.type === "GROUP") {
+        // GROUP children share the source parent's coordinate system, including
+        // its rotation. Transform into the new FRAME's local space exactly once.
+        const angle = (sourceParent.rotation || 0) * Math.PI / 180;
+        const x = out.x, y = out.y;
+        out.x = Math.cos(angle) * x - Math.sin(angle) * y;
+        out.y = Math.sin(angle) * x + Math.cos(angle) * y;
+        out.rotation = (item.rotation || 0) - (sourceParent.rotation || 0);
+      }
     }
-    mappings.push({ sourceId: item.id, key: nodeKey, source: item, isSvg, expectedBounds: { ...item.bounds, x: out.x ?? item.bounds.x, y: out.y ?? item.bounds.y } });
+    let rebuiltTransform;
+    if (reflectedVectors.has(item.id)) {
+      const t = reflectedVectors.get(item.id);
+      const angle = (sourceParent?.type === "GROUP" ? sourceParent.rotation || 0 : 0) * Math.PI / 180;
+      const c = Math.cos(angle), s = Math.sin(angle);
+      rebuiltTransform = [[c * t[0][0] - s * t[1][0], c * t[0][1] - s * t[1][1], out.x ?? t[0][2]],
+        [s * t[0][0] + c * t[1][0], s * t[0][1] + c * t[1][1], out.y ?? t[1][2]]];
+    }
+    mappings.push({ sourceId: item.id, key: nodeKey, source: item, isSvg, rebuiltTransform, rebuiltRotation: out.rotation, expectedBounds: { ...item.bounds, x: out.x ?? item.bounds.x, y: out.y ?? item.bounds.y } });
     if (!isRoot) nodes.push(out);
     if (!isSvg && !isVector) for (const [i, child] of (item.children || []).entries()) if (visibleIds.has(child.id)) convert(child, out, i, false, item);
     return out;
@@ -149,6 +199,15 @@ export function compileReconstruction(read, { key, name, changes = [] }) {
   // Root is relocated via section position, never via source coordinates.
   delete spec.layoutPositioning;
   const customization = customizeReconstruction(spec, mappings, changes);
+  // Customization may move or rotate a retained reflected vector.
+  for (const mapping of mappings) if (mapping.rebuiltTransform) {
+    const final = spec.nodes.find(node => node.key === mapping.key);
+    const t = mapping.rebuiltTransform;
+    const angle = ((final.rotation || 0) - (mapping.rebuiltRotation || 0)) * Math.PI / 180;
+    const c = Math.cos(angle), s = Math.sin(angle);
+    mapping.rebuiltTransform = [[c * t[0][0] + s * t[1][0], c * t[0][1] + s * t[1][1], final.x ?? t[0][2]],
+      [-s * t[0][0] + c * t[1][0], -s * t[0][1] + c * t[1][1], final.y ?? t[1][2]]];
+  }
   const parsed = parseRenderScreenInput({ spec });
   return { spec: normalizeScreenSpec(parsed.spec), mappings, fonts: read.fonts || [], source: root, skippedHidden, customization };
 }
@@ -221,14 +280,11 @@ export function buildReconstructionWrite(compiled, position) {
   const bySpec = new Map();
   const collect = node => { bySpec.set(node.key, node); for (const child of node.children || []) collect(child); };
   collect(compiled.spec);
-  const mappings = compiled.mappings.map(({ key, source, sourceId, isSvg, expectedBounds }) => ({ key, sourceId, isSvg, bounds: expectedBounds, absolute: source.absoluteBoundingBox,
+  const mappings = compiled.mappings.map(({ key, source, sourceId, isSvg, rebuiltTransform, expectedBounds }) => ({ key, sourceId, isSvg, rebuiltTransform, bounds: expectedBounds, absolute: source.absoluteBoundingBox,
     sizingH: source.layoutSizingHorizontal, sizingV: source.layoutSizingVertical,
+    rotation: bySpec.get(key)?.rotation, isMask: bySpec.get(key)?.isMask, maskType: bySpec.get(key)?.maskType,
     content: bySpec.get(key)?.content, fontFamily: bySpec.get(key)?.fontFamily, fontStyle: bySpec.get(key)?.fontStyle }));
-  return `
-const result = await (async () => { ${buildRenderCode({ spec: compiled.spec, replace: false, position })} })();
-// Verification failures must not turn an applied write into a retryable error.
-try {
-  const root = await figma.getNodeByIdAsync(result.rootId);
+  const finalizeCode = `
   const entries = ${JSON.stringify(mappings)};
   const byKey = new Map([root, ...root.findAll()].map(n => [n.getPluginData("codex-spec-key"), n]));
   for (const entry of [...entries].reverse()) {
@@ -238,6 +294,18 @@ try {
       if (value && field in node && (value !== "FILL" || ["HORIZONTAL", "VERTICAL"].includes(node.parent.layoutMode))) node[field] = value;
     }
   }
+  for (const entry of entries) if (entry.rebuiltTransform) {
+    const node = byKey.get(entry.key);
+    if (node) node.relativeTransform = entry.rebuiltTransform;
+  }
+`;
+  return `
+const result = await (async () => { ${buildRenderCode({ spec: compiled.spec, replace: false, position, finalizeCode })} })();
+// Everything below is read-only; a failed comparison cannot undo a completed write.
+try {
+  const root = await figma.getNodeByIdAsync(result.rootId);
+  const entries = ${JSON.stringify(mappings)};
+  const byKey = new Map([root, ...root.findAll()].map(n => [n.getPluginData("codex-spec-key"), n]));
   const differences = [];
   const originalRoot = entries[0].absolute;
   const rebuiltRoot = root.absoluteBoundingBox;
@@ -254,6 +322,11 @@ try {
       const actual = node.absoluteBoundingBox[f] - rebuiltRoot[f];
       if (Math.abs(expected - actual) > 0.5) differences.push({ sourceId: entry.sourceId, id: node.id, property: "screen." + f, expected, actual });
     }
+    if (entry.rebuiltTransform) for (let row = 0; row < 2; row++) for (let column = 0; column < 3; column++) {
+      if (Math.abs(node.relativeTransform[row][column] - entry.rebuiltTransform[row][column]) > 0.001) differences.push({ sourceId: entry.sourceId, id: node.id, property: "relativeTransform" });
+    }
+    if (entry.rotation !== undefined && Math.abs(((node.rotation - entry.rotation + 540) % 360) - 180) > 0.01) differences.push({ sourceId: entry.sourceId, id: node.id, property: "rotation", expected: entry.rotation, actual: node.rotation });
+    for (const f of ["isMask", "maskType"]) if (entry[f] !== undefined && node[f] !== entry[f]) differences.push({ sourceId: entry.sourceId, id: node.id, property: f, expected: entry[f], actual: node[f] });
     if (entry.content !== undefined && node.characters !== entry.content) differences.push({ sourceId: entry.sourceId, id: node.id, property: "content" });
     if (entry.fontFamily && (node.fontName === figma.mixed || node.fontName.family !== entry.fontFamily || node.fontName.style !== entry.fontStyle)) differences.push({ sourceId: entry.sourceId, id: node.id, property: "fontName" });
   }
@@ -264,10 +337,11 @@ return result;`;
 }
 
 export async function recreateScreen(bridge, input) {
+  let writeAttempted = false;
   try {
     const parsed = z.object(recreateScreenInputSchema).strict().parse(input);
     return await bridge.runInFile(parsed.fileKey, async target => {
-      const read = await bridge.execute(buildReconstructionRead(parsed.sourceId), { ...target, timeout: 20000, operation: { name: "recreate_screen", mutating: false } });
+      const read = await bridge.execute(buildReconstructionRead(parsed.sourceId, parsed.changes), { ...target, timeout: 20000, operation: { name: "recreate_screen", mutating: false } });
       const compiled = compileReconstruction(read.result, { key: `recreated-${randomUUID()}`, name: parsed.name, changes: parsed.changes });
       const summary = { sourceId: parsed.sourceId, sourceNodes: compiled.mappings.length, skippedHidden: compiled.skippedHidden, fonts: compiled.fonts,
         notes: ["Воссоздаётся видимое состояние экрана; скрытые ветки не включаются. Создаются новые редактируемые слои без clone(). Экземпляры и группы становятся фреймами; связи с библиотекой и Variables заменяются текущими значениями.", "Векторы создаются из исходных контуров, остальные фигуры — через SVG. Пиксельное совпадение требует визуальной проверки."] };
@@ -277,6 +351,7 @@ export async function recreateScreen(bridge, input) {
         return toolSuccess({ ...summary, operationStatus: "read", ready: true });
       }
       const bounds = compiled.source.absoluteBoundingBox || compiled.source.bounds;
+      writeAttempted = true;
       const payload = await bridge.execute(buildReconstructionWrite(compiled, parsed.position || { x: bounds.x + bounds.width + 80, y: bounds.y }), { ...target, timeout: 30000, operation: { name: "recreate_screen", mutating: true } });
       Object.assign(payload, summary, { operationStatus: "applied" });
       if (parsed.screenshot === false) return toolSuccess(payload);
@@ -290,5 +365,8 @@ export async function recreateScreen(bridge, input) {
         return toolSuccess(payload);
       }
     }, { requireExplicitFile: true });
-  } catch (error) { return toolFailure(error); }
+  } catch (error) {
+    if (!writeAttempted) error.operationStatus = "not_applied";
+    return toolFailure(error);
+  }
 }

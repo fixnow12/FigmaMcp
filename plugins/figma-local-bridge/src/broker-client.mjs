@@ -29,6 +29,17 @@ export function connectSecure(port, identity, { timeout = 2000, onMessage = () =
   });
 }
 
+function interruptedRequest(message, code, method, args) {
+  const uncertain = method === 'execute' && args.operation?.mutating !== false;
+  return Object.assign(new Error(message), {
+    code, operationStatus: uncertain ? 'unknown' : 'not_applied',
+    ...(args.fileKey ? { fileKey: args.fileKey } : {}),
+    nextStep: uncertain
+      ? 'Запись могла выполниться. Восстановите подключение и прочитайте затронутые узлы перед повтором; не отправляйте запись автоматически.'
+      : 'Восстановите подключение MCP и повторите чтение.',
+  });
+}
+
 export class BrokerClient {
   constructor({ directory = installationDirectory(), ports = [9233], autoStart = true } = {}) {
     this.directory = directory;
@@ -87,16 +98,16 @@ export class BrokerClient {
   connectionLost() {
     this.connection = null;
     this.closed = true;
-    for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error('Bridge отключился; доступ этой AI-сессии завершён.')); }
+    for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(interruptedRequest('Bridge отключился; доступ этой AI-сессии завершён.', 'BRIDGE_DISCONNECTED', pending.method, pending.args)); }
     this.pending.clear();
   }
   async call(method, args = {}) {
     const { secure } = await this.connect();
     const id = randomUUID();
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error('Истекло время ожидания Bridge')); }, 90000);
-      this.pending.set(id, { resolve, reject, timer });
-      try { secure.send({ id, method, args }); } catch (error) { clearTimeout(timer); this.pending.delete(id); reject(error); }
+      const timer = setTimeout(() => { this.pending.delete(id); reject(interruptedRequest('Истекло время ожидания Bridge', 'BRIDGE_TIMEOUT', method, args)); }, 90000);
+      this.pending.set(id, { resolve, reject, timer, method, args });
+      try { secure.send({ id, method, args }); } catch (error) { clearTimeout(timer); this.pending.delete(id); reject(interruptedRequest(error.message, 'BRIDGE_SEND_FAILED', method, args)); }
     });
   }
   execute(code, options = {}) { return this.call('execute', { ...options, code }); }

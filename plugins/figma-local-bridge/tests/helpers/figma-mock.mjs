@@ -21,7 +21,7 @@ export function createFigmaMock() {
     const raw = {
       id: "node:" + ++counter, name: type, type, parent: null, removed: false,
       x: 0, y: 0, width: 100, height: 40, visible: true, opacity: 1,
-      fills: [], strokes: [], strokeWeight: 1, boundVariables: {},
+      fills: [], strokes: [], strokeWeight: 1, boundVariables: {}, isMask: false, maskType: "ALPHA", rotation: 0,
       layoutSizingHorizontal: "FIXED", layoutSizingVertical: "FIXED",
       getPluginData: (key) => data[key] || "",
       getPluginDataKeys: () => Object.keys(data),

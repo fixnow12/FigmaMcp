@@ -595,6 +595,17 @@
           },
           "maxItems": 100
         },
+        "isMask": {
+          "type": "boolean"
+        },
+        "maskType": {
+          "type": "string",
+          "enum": [
+            "ALPHA",
+            "VECTOR",
+            "LUMINANCE"
+          ]
+        },
         "blendMode": {
           "anyOf": [
             {
@@ -1818,6 +1829,17 @@
                 },
                 "maxItems": 100
               },
+              "isMask": {
+                "type": "boolean"
+              },
+              "maskType": {
+                "type": "string",
+                "enum": [
+                  "ALPHA",
+                  "VECTOR",
+                  "LUMINANCE"
+                ]
+              },
               "blendMode": {
                 "anyOf": [
                   {
@@ -1961,7 +1983,8 @@
                       "type": "string",
                       "enum": [
                         "NONZERO",
-                        "EVENODD"
+                        "EVENODD",
+                        "NONE"
                       ]
                     },
                     "data": {

@@ -123,7 +123,7 @@ const common = {
   effectStyleId: z.string().optional(),
 };
 
-const vectorPathsSchema = () => z.array(z.object({ windingRule: z.enum(["NONZERO", "EVENODD"]), data: z.string().min(1).max(2000000) }).strict()).min(1).max(2000);
+const vectorPathsSchema = () => z.array(z.object({ windingRule: z.enum(["NONZERO", "EVENODD", "NONE"]), data: z.string().min(1).max(2000000) }).strict()).min(1).max(2000);
 
 const containerFields = {
   ...common,
