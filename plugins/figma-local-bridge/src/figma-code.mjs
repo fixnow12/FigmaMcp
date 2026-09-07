@@ -273,7 +273,7 @@ function variantName(variant, fallback) {
 }
 `;
 
-export function buildRenderCode({ spec, replace, sectionName, position, dryRun = false }) {
+export function buildRenderCode({ spec, replace, sectionName, position, dryRun = false, finalizeCode = "" }) {
   return `${helpers}
 const spec = ${literal(spec)};
 const options = ${literal({ replace, sectionName, position, dryRun })};
@@ -431,6 +431,8 @@ try {
   for (const child of spec.children || []) await build(child, root);
   root.resize(spec.width, spec.height);
 
+  // Internal reconstruction finalization belongs to the same rollback boundary.
+  ${finalizeCode}
   checkOperation();
   const result = {
     rootId: root.id,
@@ -734,8 +736,8 @@ function inspect(node, level) {
     if (ancestor.visible === false) item.effectiveVisible = false;
     ancestor = ancestor.parent;
   }
+  if ([...(Array.isArray(node.fills) ? node.fills : []), ...(Array.isArray(node.strokes) ? node.strokes : [])].some(p => p.type === "VIDEO")) fidelityWarnings.push({ nodeId: node.id, feature: "VIDEO", message: "Перенос существующей видеозаливки не поддержан; не заменяйте видео картинкой без запроса пользователя" });
   if (node.layoutMode === "GRID") fidelityWarnings.push({ nodeId: node.id, feature: "GRID", message: "Grid ещё не поддержан render_screen; нельзя молча заменять его вертикальным Auto Layout" });
-  if (node.isMask) fidelityWarnings.push({ nodeId: node.id, feature: "mask", message: "Маску с содержимым экспортируйте отдельным SVG; связь маски не воссоздаётся spec" });
   if (node.relativeTransform && (Math.abs(node.relativeTransform[0][0] * node.relativeTransform[0][1] + node.relativeTransform[1][0] * node.relativeTransform[1][1]) > 0.001 || node.relativeTransform[0][0] * node.relativeTransform[1][1] - node.relativeTransform[0][1] * node.relativeTransform[1][0] < 0)) fidelityWarnings.push({ nodeId: node.id, feature: "affine_transform", message: "Отражение или skew требует отдельного SVG; rotation недостаточно" });
   if ("fills" in node && node.fills !== figma.mixed) item.fills = node.fills;
   if ("strokes" in node) item.strokes = node.strokes;
@@ -782,6 +784,7 @@ function inspect(node, level) {
     for (const field of ["opacity", "fills", "strokes", "strokeWeight", "cornerRadius", "clipsContent", "effects", "fillStyleId", "strokeStyleId", "effectStyleId", "boundVariables", "explicitVariableModes", "layoutSizingHorizontal", "layoutSizingVertical", "layoutPositioning", "minWidth", "maxWidth", "minHeight", "maxHeight", "absoluteBoundingBox", "relativeTransform", "rotation", "constraints", "topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius", "cornerSmoothing", "strokeAlign", "strokeTopWeight", "strokeBottomWeight", "strokeLeftWeight", "strokeRightWeight", "dashPattern", "blendMode", "isMask", "maskType", "textAlignVertical", "paragraphSpacing", "paragraphIndent", "vectorPaths", "strokeCap", "strokeJoin"]) {
       if (field in node) item[field] = serializable(node[field]);
     }
+    if (node.isMask && ["BOOLEAN_OPERATION", "STAR", "POLYGON"].includes(node.type)) item.fillGeometry = node.fillGeometry;
     if (node.type === "TEXT") {
       item.typography = {};
       for (const field of ["fontName", "fontSize", "lineHeight", "letterSpacing", "textAlignHorizontal", "textAutoResize", "textStyleId", "hasMissingFont"]) item.typography[field] = serializable(node[field]);

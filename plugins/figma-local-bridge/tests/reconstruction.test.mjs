@@ -226,3 +226,193 @@ test("dryRun проверяет шрифты новых элементов до 
     assert.equal(f.nodes.size, count);
   }
 });
+
+test("маски внутри экземпляра сохраняют тип, контуры и порядок без экспорта или изменения исходника", async () => {
+  for (const maskType of ["ALPHA", "VECTOR", "LUMINANCE"]) {
+    const f = fixture();
+    const instance = f.make("INSTANCE", { layoutMode: "NONE" }, f.root);
+    const outer = f.make("RECTANGLE", { name: "Picture mask", isMask: true, maskType }, instance);
+    const group = f.make("FRAME", { layoutMode: "NONE" }, instance);
+    group.type = "GROUP";
+    const paths = [{ windingRule: "EVENODD", data: "M0 0L100 0L100 40L0 40Z" }];
+    const mask = f.make("BOOLEAN_OPERATION", { name: "Figure-mask", isMask: true, maskType,
+      fillGeometry: paths, cornerRadius: 8, exportAsync: () => assert.fail("Маска не экспортируется отдельно"),
+      clone: () => assert.fail("Исходник не копируется"),
+    }, group);
+    const photo = f.make("RECTANGLE", { fills: [{ type: "IMAGE", imageHash: "original", scaleMode: "FILL" }] }, group);
+    f.figma.getImageByHash = hash => hash === "original" ? {} : null;
+    const before = JSON.stringify(await executeGenerated(f.figma, buildReconstructionRead(f.root.id)));
+    const count = f.nodes.size;
+    const ready = await recreateScreen(f.bridge, { fileKey: "file", sourceId: f.root.id, dryRun: true });
+    assert.equal(ready.structuredContent.ready, true, JSON.stringify(ready));
+    assert.equal(f.nodes.size, count);
+    const result = await recreateScreen(f.bridge, { fileKey: "file", sourceId: f.root.id, screenshot: false });
+    assert.equal(result.isError, undefined, JSON.stringify(result));
+    const get = source => f.nodes.get(result.structuredContent.result.mapping.find(m => m.sourceId === source.id).id);
+    assert.equal(get(instance).type, "FRAME");
+    assert.equal(get(outer).isMask, true);
+    assert.equal(get(mask).type, "VECTOR");
+    assert.equal(get(mask).isMask, true);
+    assert.equal(get(mask).maskType, maskType);
+    assert.equal(get(mask).cornerRadius, 0);
+    assert.deepEqual(get(mask).vectorPaths, paths);
+    assert.deepEqual(get(group).children, [get(mask), get(photo)]);
+    assert.deepEqual(get(photo).fills, photo.fills);
+    assert.equal(result.structuredContent.result.verification.differenceCount, 0);
+    assert.equal(JSON.stringify(await executeGenerated(f.figma, buildReconstructionRead(f.root.id))), before);
+  }
+});
+
+test("непрочитанная геометрия маски блокирует dryRun и запись без SVG fallback", async () => {
+  const f = fixture();
+  const mask = f.make("BOOLEAN_OPERATION", { name: "Figure-mask", isMask: true, fillGeometry: [], exportAsync: () => assert.fail("Не экспортируем пустую маску") }, f.root);
+  const count = f.nodes.size;
+  for (const dryRun of [true, false]) {
+    const result = await recreateScreen(f.bridge, { fileKey: "file", sourceId: f.root.id, dryRun });
+    assert.equal(result.isError, true);
+    assert.ok(result.structuredContent.error.includes(mask.id));
+    assert.match(result.structuredContent.error, /геометрия маски/);
+    assert.equal(f.nodes.size, count);
+  }
+});
+
+test("поворот группы не применяется повторно к маске и её содержимому", async () => {
+  const f = fixture();
+  const group = f.make("FRAME", { layoutMode: "NONE", x: 10, y: 20, rotation: 30 }, f.root);
+  group.type = "GROUP";
+  const mask = f.make("RECTANGLE", { x: 10, y: 20, rotation: 30, isMask: true }, group);
+  const photo = f.make("RECTANGLE", { x: 20, y: 20, rotation: 45 }, group);
+  const compiled = compileReconstruction(await executeGenerated(f.figma, buildReconstructionRead(f.root.id)), { key: "rotated-group" });
+  const result = await executeGenerated(f.figma, buildReconstructionWrite(compiled));
+  const get = source => f.nodes.get(result.mapping.find(m => m.sourceId === source.id).id);
+  assert.equal(get(group).rotation, 30);
+  assert.equal(get(mask).rotation, 0);
+  assert.equal(get(mask).x, 0);
+  assert.equal(get(mask).y, 0);
+  assert.equal(get(photo).rotation, 15);
+  const x = get(photo).x, y = get(photo).y, angle = Math.PI / 6;
+  assert.ok(Math.abs(10 + Math.cos(angle) * x + Math.sin(angle) * y - photo.x) < 1e-6);
+  assert.ok(Math.abs(20 - Math.sin(angle) * x + Math.cos(angle) * y - photo.y) < 1e-6);
+  assert.equal(result.verification.differenceCount, 0);
+});
+
+test("отражённый VECTOR сохраняет матрицу; skew и отражённые контейнеры блокируются", async () => {
+  const f = fixture();
+  const transform = [[-1, 0, 187], [0, 1, 103]];
+  const vector = f.make("VECTOR", { x: 187, y: 103, rotation: -180, relativeTransform: transform,
+    vectorPaths: [{ windingRule: "NONZERO", data: "M0 0L12 0L12 8Z" }],
+  }, f.root);
+  const read = await executeGenerated(f.figma, buildReconstructionRead(f.root.id));
+  const compiled = compileReconstruction(read, { key: "reflected" });
+  const result = await executeGenerated(f.figma, buildReconstructionWrite(compiled));
+  const rebuilt = f.nodes.get(result.mapping.find(m => m.sourceId === vector.id).id);
+  assert.deepEqual(rebuilt.relativeTransform, transform);
+  assert.equal(result.verification.differenceCount, 0);
+  vector.relativeTransform = [[1, 0.2, 0], [0, 1, 0]];
+  const skewed = await executeGenerated(f.figma, buildReconstructionRead(f.root.id));
+  assert.throws(() => compileReconstruction(skewed, { key: "skew" }), /affine_transform/);
+  f.card.relativeTransform = transform;
+  const reflectedContainer = await executeGenerated(f.figma, buildReconstructionRead(f.root.id));
+  assert.throws(() => compileReconstruction(reflectedContainer, { key: "container" }), /affine_transform/);
+});
+
+test("смешанные радиусы фрейма и незалитые контуры проходят реконструкцию без подмен", async () => {
+  const f = fixture();
+  const originalCreate = f.figma.createFrame;
+  f.figma.createFrame = () => Object.assign(originalCreate(), { topLeftRadius: 0, topRightRadius: 0, bottomLeftRadius: 0, bottomRightRadius: 0 });
+  Object.assign(f.card, { cornerRadius: f.figma.mixed, topLeftRadius: 20, topRightRadius: 8, bottomLeftRadius: 4, bottomRightRadius: 0 });
+  const vector = f.make("VECTOR", { vectorPaths: [{ windingRule: "NONE", data: "M0 0L12 8" }] }, f.root);
+  const result = await recreateScreen(f.bridge, { fileKey: "file", sourceId: f.root.id, screenshot: false });
+  assert.equal(result.isError, undefined, JSON.stringify(result));
+  const get = source => f.nodes.get(result.structuredContent.result.mapping.find(m => m.sourceId === source.id).id);
+  for (const prop of ["topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius"]) assert.equal(get(f.card)[prop], f.card[prop]);
+  assert.deepEqual(get(vector).vectorPaths, vector.vectorPaths);
+});
+
+
+test("VIDEO сообщает конкретный блокирующий узел до записи и не обещает успешный dryRun", async () => {
+  const f = fixture();
+  const video = f.make("RECTANGLE", { fills: [{ type: "VIDEO", videoHash: "unsupported", scaleMode: "FILL" }] }, f.root);
+  const count = f.nodes.size;
+  for (const dryRun of [true, false]) {
+    const result = await recreateScreen(f.bridge, { fileKey: "file", sourceId: f.root.id, dryRun });
+    assert.equal(result.isError, true);
+    assert.ok(result.structuredContent.error.includes(video.id));
+    assert.match(result.structuredContent.error, /VIDEO/);
+    assert.equal(f.nodes.size, count);
+  }
+});
+
+test("сбой применения отражения откатывает всю реконструкцию и выделение", async () => {
+  const f = fixture();
+  const source = f.make("VECTOR", { x: 100, y: 10, rotation: -180, relativeTransform: [[-1, 0, 100], [0, 1, 10]], vectorPaths: [{ windingRule: "NONZERO", data: "M0 0L10 0L10 10Z" }] }, f.root);
+  const count = f.nodes.size;
+  f.page.selection = [f.root];
+  f.rejectWrites((node, field) => node.id !== source.id && field === "relativeTransform");
+  const result = await recreateScreen(f.bridge, { fileKey: "file", sourceId: f.root.id, screenshot: false });
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.operationStatus, "rolled_back");
+  assert.equal(f.nodes.size, count);
+  assert.deepEqual(f.page.selection, [f.root]);
+  assert.deepEqual(source.relativeTransform, [[-1, 0, 100], [0, 1, 10]]);
+});
+
+test("remove/replace исключают неподдержанные ветки и их ресурсы до проверки", async () => {
+  for (const action of ['remove', 'replace']) for (const dryRun of [true, false]) {
+    const f = fixture();
+    const discarded = f.make('FRAME', { layoutMode: 'GRID' }, f.root);
+    f.make('TEXT', { fontName: { family: 'Missing', style: 'Regular' } }, discarded);
+    f.make('RECTANGLE', { fills: [{ type: 'VIDEO', videoHash: 'old-video', scaleMode: 'FILL' }] }, discarded);
+    f.make('VECTOR', { exportAsync: () => assert.fail('Удаляемая ветка не экспортируется') }, discarded);
+    const before = f.nodes.size;
+    const originalChildren = [...discarded.children];
+    const result = await recreateScreen(f.bridge, { fileKey: 'file', sourceId: f.root.id, dryRun, screenshot: false,
+      changes: [{ sourceId: discarded.id, action, ...(action === 'replace' ? { nodes: [{ key: 'replacement', name: 'Новый блок', type: 'frame', width: 120, height: 60 }] } : {}) }],
+    });
+    assert.equal(result.isError, undefined, JSON.stringify(result));
+    assert.deepEqual(discarded.children, originalChildren);
+    assert.ok(f.nodes.has(discarded.id));
+    assert.equal(f.loadedFonts.some(font => font.family === 'Missing'), false);
+    if (dryRun) assert.equal(f.nodes.size, before);
+    else {
+      const rebuilt = f.nodes.get(result.structuredContent.result.rootId);
+      assert.equal(rebuilt.children.length, action === 'remove' ? 1 : 2);
+      assert.equal(rebuilt.findAll().some(node => node.fills?.some(paint => paint.type === 'VIDEO')), false);
+    }
+  }
+});
+
+test("preflight возвращает все блокирующие слои с именами и статусом not_applied", async () => {
+  const f = fixture();
+  const video = f.make('RECTANGLE', { name: 'Ролик', fills: [{ type: 'VIDEO', videoHash: 'video', scaleMode: 'FILL' }] }, f.root);
+  f.card.layoutMode = 'GRID';
+  const result = await recreateScreen(f.bridge, { fileKey: 'file', sourceId: f.root.id, dryRun: true });
+  const payload = result.structuredContent;
+  assert.equal(payload.code, 'RECONSTRUCTION_BLOCKED');
+  assert.equal(payload.operationStatus, 'not_applied');
+  assert.deepEqual(payload.blockers.map(b => b.feature), ['GRID', 'VIDEO']);
+  assert.equal(payload.blockers.find(b => b.nodeId === video.id).name, 'Ролик');
+  assert.ok(payload.nextStep);
+  assert.deepEqual(JSON.parse(result.content[0].text), payload);
+});
+
+test("сбой предварительного чтения не выдаётся за неизвестный результат записи", async () => {
+  const f = fixture();
+  f.bridge.execute = async () => { throw Object.assign(new Error('timeout'), { operationStatus: 'unknown' }); };
+  const result = await recreateScreen(f.bridge, { fileKey: 'file', sourceId: f.root.id });
+  assert.equal(result.structuredContent.operationStatus, 'not_applied');
+});
+
+test("после отправки записи сохраняется unknown и отсутствует автоматический повтор", async () => {
+  const f = fixture();
+  const execute = f.bridge.execute;
+  let calls = 0;
+  f.bridge.execute = async code => {
+    calls++;
+    if (calls === 2) throw Object.assign(new Error('timeout'), { operationStatus: 'unknown' });
+    return execute(code);
+  };
+  const result = await recreateScreen(f.bridge, { fileKey: 'file', sourceId: f.root.id });
+  assert.equal(result.structuredContent.operationStatus, 'unknown');
+  assert.equal(calls, 2);
+});

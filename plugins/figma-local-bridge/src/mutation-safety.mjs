@@ -2,7 +2,7 @@
 export function createMutationSafety(figma) {
   const fonts = new Map();
   const fieldMap = {
-    ...Object.fromEntries(["fills", "strokes", "topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius", "cornerSmoothing", "strokeAlign", "strokeTopWeight", "strokeBottomWeight", "strokeLeftWeight", "strokeRightWeight", "dashPattern", "blendMode", "rotation", "layoutPositioning", "constraints", "minWidth", "maxWidth", "minHeight", "maxHeight", "textAutoResize", "textAlignVertical", "paragraphSpacing", "paragraphIndent"].map(k => [k, k])),
+    ...Object.fromEntries(["fills", "strokes", "isMask", "maskType", "topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius", "cornerSmoothing", "strokeAlign", "strokeTopWeight", "strokeBottomWeight", "strokeLeftWeight", "strokeRightWeight", "dashPattern", "blendMode", "rotation", "layoutPositioning", "constraints", "minWidth", "maxWidth", "minHeight", "maxHeight", "textAutoResize", "textAlignVertical", "paragraphSpacing", "paragraphIndent"].map(k => [k, k])),
     name: "name", content: "characters", visible: "visible", opacity: "opacity",
     x: "x", y: "y", background: "fills", color: "fills", stroke: "strokes",
     strokeWidth: "strokeWeight", cornerRadius: "cornerRadius", gap: "itemSpacing",

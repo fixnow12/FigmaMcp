@@ -118,3 +118,14 @@ test("append сохраняет paints, absolute position и textAutoResize; и�
   await patch(mock, [{ id: text.id, set: { textAutoResize: "NONE", width: 100, height: 40 } }]);
   assert.equal(text.textAutoResize, "NONE");
 });
+
+test("patch маски откатывает isMask и maskType при ошибке следующего узла", async () => {
+  const mock = createFigmaMock();
+  const mask = mock.make("RECTANGLE", { isMask: true, maskType: "LUMINANCE" });
+  const other = mock.make("FRAME");
+  mock.rejectWrites((target, field, value) => target.id === other.id && field === "opacity" && value === 0.25);
+  await assert.rejects(patch(mock, [{ id: mask.id, set: { isMask: false, maskType: "VECTOR" } }, { id: other.id, set: { opacity: 0.25 } }]), /отменены/);
+  assert.equal(mask.isMask, true);
+  assert.equal(mask.maskType, "LUMINANCE");
+  assert.throws(() => parseRenderScreenInput(input([{ type: "rectangle", key: "x", name: "X", maskType: "UNKNOWN" }])));
+});

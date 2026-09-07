@@ -18,6 +18,7 @@
     "smoke": "node scripts/smoke-test.mjs",
     "smoke:compact": "node scripts/compact-smoke-test.mjs",
     "smoke:advanced": "node scripts/advanced-smoke-test.mjs",
+    "schema:check": "node scripts/export-schema.mjs --check",
     "schema:export": "node scripts/export-schema.mjs",
     "test": "node scripts/run-tests.mjs"
   },
