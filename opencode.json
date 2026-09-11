@@ -15,7 +15,7 @@
       "environment": {
         "FIGMA_WS_HOST": "127.0.0.1"
       },
-      "timeout": 30000
+      "timeout": 150000
     }
   }
 }

@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
-import { buildPatchCode } from "../src/figma-code.mjs";
+import { buildInspectCode, buildPatchCode, buildRenderCode } from "../src/figma-code.mjs";
+import { buildFindAssetsCode } from "../src/asset-catalog.mjs";
+import { normalizeScreenSpec } from "../src/schemas.mjs";
 import { createFigmaMock } from "./helpers/figma-mock.mjs";
 
 async function executionHandler(figma, globals = {}) {
@@ -64,6 +66,19 @@ test('команда, задержавшаяся до приёма Plugin API, �
   assert.equal((await handler.probe()).busy, false);
 });
 
+test('ошибка preflight сохраняет структурированную причину и освобождает очередь', async () => {
+  const mock = createFigmaMock();
+  const details = { operationStatus: 'not_applied', code: 'FONT_LOAD_TIMEOUT',
+    nextStep: 'Проверьте доступность шрифта', fileKey: 'guide',
+    blockers: [{ type: 'font', family: 'Factor IO', style: 'Bold' }], rollbackErrors: [] };
+  const handler = await executionHandler(mock.figma, { details });
+  await handler.run('preflight', 'throw Object.assign(new Error("Шрифт недоступен"), details);');
+  const result = handler.messages.find(message => message.type === 'EXECUTE_CODE_RESULT');
+  for (const [key, value] of Object.entries(details)) assert.deepEqual(result[key], value);
+  assert.equal(result.success, false);
+  assert.equal((await handler.probe()).busy, false);
+});
+
 test("сгенерированный патч после тайм-аута на загрузке шрифта не пишет в макет", async () => {
   const mock = createFigmaMock();
   const text = mock.make("TEXT");
@@ -100,4 +115,85 @@ test("просроченная команда в очереди не выпол�
   assert.deepEqual(events, []);
   assert.equal(handler.messages.find((message) => message.requestId === "expired" && message.type === "EXECUTE_CODE_RESULT").operationStatus, "not_applied");
   assert.equal(handler.messages.some((message) => message.requestId === "expired" && message.state === "running"), false);
+});
+
+for (const stage of ['load', 'list']) test(`зависание службы шрифтов (${stage}) завершается до записи и освобождает очередь`, async () => {
+  const mock = createFigmaMock();
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  mock.figma.loadFontAsync = stage === 'load' ? () => gate : async () => { throw new Error('font service failed'); };
+  mock.figma.listAvailableFontsAsync = () => gate;
+  const handler = await executionHandler(mock.figma, {
+    // Compress only the font service budget; retain the outer execution watchdog.
+    setTimeout: (fn, ms) => setTimeout(fn, ms === 8000 ? 5 : ms),
+  });
+  const spec = normalizeScreenSpec({ key: 'cover', name: 'Обложка', type: 'screen', width: 1440, height: 900,
+    nodes: [{ type: 'text', key: 'title', name: 'Название', content: 'Layouts & Grid', fontFamily: 'Factor IO', fontStyle: 'Bold' }] });
+  const result = handler.result('font');
+  const operation = handler.run('font', buildRenderCode({ spec }), 1000);
+  try {
+    const response = await result;
+    assert.equal(response.operationStatus, 'not_applied');
+    assert.match(response.error, /Factor IO.*Bold/);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal((await handler.probe()).busy, false);
+    assert.equal(mock.figma.currentPage.children.length, 0);
+  } finally {
+    release([]);
+    await operation;
+  }
+  assert.equal(mock.figma.currentPage.children.length, 0, 'late font completion cannot resume the abandoned render');
+});
+
+for (const kind of ['library_collections', 'library_variables', 'variables', 'styles', 'node']) {
+  test(`${kind}: зависшее чтение освобождает очередь без позднего продолжения`, async () => {
+    const mock = createFigmaMock();
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    mock.figma.teamLibrary = {
+      getAvailableLibraryVariableCollectionsAsync: () => gate,
+      getVariablesInLibraryCollectionAsync: () => gate,
+    };
+    mock.figma.variables.getLocalVariablesAsync = () => gate;
+    mock.figma.getLocalPaintStylesAsync = () => gate;
+    mock.figma.getNodeByIdAsync = () => gate;
+    const handler = await executionHandler(mock.figma, {
+      setTimeout: (fn, ms) => setTimeout(fn, ms === 6000 ? 5 : ms),
+    });
+    const code = kind === 'node'
+      ? buildInspectCode({ nodeId: '1:99', depth: 1, maxNodes: 20 })
+      : buildFindAssetsCode({ kind, collectionKey: 'collection' });
+    const response = handler.result('read');
+    const running = handler.run('read', code, 200);
+    try {
+      const result = await response;
+      assert.equal(result.code, 'FIGMA_READ_TIMEOUT');
+      assert.equal(result.operationStatus, 'not_applied');
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal((await handler.probe()).busy, false);
+      await handler.run('next', 'return 42;');
+      assert.equal(handler.messages.find(m => m.requestId === 'next' && m.success).result, 42);
+    } finally {
+      release([]);
+      await running;
+    }
+    assert.equal(mock.figma.currentPage.children.length, 0);
+    assert.equal(handler.messages.filter(m => m.type === 'EXECUTE_CODE_RESULT' && m.requestId === 'read').length, 1);
+  });
+}
+
+test('probe сообщает имя и возраст выполняющейся операции только своего файла', async () => {
+  const mock = createFigmaMock();
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const handler = await executionHandler(mock.figma, { gate });
+  const running = handler.run('library', 'await gate;', 1000, { operation: { name: 'find_assets', mutating: false } });
+  try {
+    await new Promise(resolve => setImmediate(resolve));
+    const status = await handler.probe();
+    assert.equal(status.activeOperation.name, 'find_assets');
+    assert.equal(status.activeOperation.mutating, false);
+    assert.ok(status.activeOperation.elapsedMs >= 0);
+  } finally { release(); await running; }
+  assert.equal((await handler.probe()).activeOperation, null);
 });

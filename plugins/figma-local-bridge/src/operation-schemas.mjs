@@ -70,3 +70,67 @@ export const bindVariablesSchema = z.object(bindVariablesInputSchema).strict().s
     targets.add(key);
   });
 });
+
+const linkUrl = () => z.string().min(1).max(4096).url().refine(value => /^(https?:|mailto:|tel:)/i.test(value), "Поддержаны http, https, mailto и tel");
+const hyperlinkTarget = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("URL"), value: linkUrl() }).strict(),
+  z.object({ type: z.literal("NODE"), value: id() }).strict(),
+]);
+const interactionOptions = () => ({
+  dryRun: z.boolean().optional().describe("Проверить весь пакет без записи"),
+  allowComponentChanges: z.boolean().optional(),
+  ...preview(),
+});
+export const setTextLinksInputSchema = {
+  links: z.array(z.object({
+    nodeId: id(), start: z.number().int().nonnegative().optional(), end: z.number().int().positive().optional(),
+    target: hyperlinkTarget.nullable().describe("null снимает ссылку; без start/end изменяется весь текст"),
+  }).strict()).min(1).max(100),
+  ...interactionOptions(),
+};
+export const setTextLinksSchema = z.object(setTextLinksInputSchema).strict().superRefine((input, context) => {
+  input.links.forEach((item, index) => {
+    const issue = message => context.addIssue({ code: z.ZodIssueCode.custom, message, path: ["links", index] });
+    if ((item.start === undefined) !== (item.end === undefined) || (item.start !== undefined && item.start >= item.end)) issue("Укажите start и end вместе; start < end (индексы UTF-16)");
+    if (input.links.slice(0, index).some(previous => previous.nodeId === item.nodeId &&
+      (previous.start ?? 0) < (item.end ?? Infinity) && (item.start ?? 0) < (previous.end ?? Infinity))) issue("Диапазоны одного текста не должны пересекаться");
+  });
+});
+const transition = z.object({
+  type: z.enum(["DISSOLVE", "SMART_ANIMATE"]), duration: z.number().min(0.01).max(10),
+  easing: z.object({ type: z.enum(["LINEAR", "EASE_IN", "EASE_OUT", "EASE_IN_AND_OUT"]) }).strict(),
+}).strict();
+const prototypeAction = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("BACK") }).strict(),
+  z.object({ type: z.literal("CLOSE") }).strict(),
+  z.object({ type: z.literal("URL"), url: linkUrl() }).strict(),
+  z.object({
+    type: z.literal("NODE"), navigation: z.enum(["NAVIGATE", "OVERLAY", "SCROLL_TO"]), destinationId: id(),
+    transition: transition.nullable().optional(), preserveScrollPosition: z.boolean().optional(),
+  }).strict(),
+]);
+const reaction = z.object({
+  trigger: z.object({ type: z.enum(["ON_CLICK", "ON_HOVER", "ON_PRESS", "ON_DRAG"]) }).strict(),
+  actions: z.array(prototypeAction).min(1).max(1).describe("Одно действие на триггер в этой версии"),
+}).strict();
+export const setReactionsInputSchema = {
+  updates: z.array(z.object({
+    nodeId: id(), mode: z.enum(["upsert", "replace"]).optional().describe("upsert заменяет только указанные типы триггеров; replace заменяет весь список, [] очищает"),
+    reactions: z.array(reaction).max(10),
+  }).strict()).min(1).max(100),
+  ...interactionOptions(),
+};
+export const setReactionsSchema = z.object(setReactionsInputSchema).strict().superRefine((input, context) => {
+  const ids = new Set();
+  input.updates.forEach((item, index) => {
+    const issue = message => context.addIssue({ code: z.ZodIssueCode.custom, message, path: ["updates", index] });
+    if (ids.has(item.nodeId)) issue("Каждый узел указывается один раз в пакете");
+    ids.add(item.nodeId);
+    if (!item.reactions.length && item.mode !== "replace") issue("Для удаления всех переходов укажите mode: replace");
+    if (new Set(item.reactions.map(r => r.trigger.type)).size !== item.reactions.length) issue("Типы триггеров одного узла не должны повторяться");
+    for (const r of item.reactions) for (const action of r.actions) {
+      if (action.navigation === "SCROLL_TO" && action.transition) issue("SCROLL_TO в этой версии поддерживает только мгновенный переход");
+      if (action.navigation !== "NAVIGATE" && action.preserveScrollPosition !== undefined) issue("preserveScrollPosition применяется только к NAVIGATE");
+    }
+  });
+});

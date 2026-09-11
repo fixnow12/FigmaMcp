@@ -9,6 +9,7 @@ import { prepareInstallation } from '../scripts/prepare-install.mjs';
 import { loadInstallation, identityFor } from '../src/installation.mjs';
 import { startBroker } from '../src/broker.mjs';
 import { connectSecure } from '../src/broker-client.mjs';
+import { pluginRevision } from '../src/runtime-info.mjs';
 
 test('stdio MCP: два чата читают один файл, includeFiles работает с нулём и несколькими файлами', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'figma-mcp-'));
@@ -17,16 +18,24 @@ test('stdio MCP: два чата читают один файл, includeFiles р
   const data = await loadInstallation(directory);
   const broker = await startBroker({ directory, port: 0 }); t.after(() => broker.stop());
   const commands = [];
-  async function addPlugin(fileKey) {
+  const probes = [];
+  let busyFile = null;
+  async function addPlugin(fileKey, pluginBuild = pluginRevision()) {
     let plugin;
     plugin = await connectSecure(broker.bridge.port, identityFor(data, 'plugin'), {
       onMessage: message => {
+        if (message.method === 'GET_EXECUTION_STATUS') {
+          probes.push(fileKey);
+          plugin.secure.send({ id: message.id, result: { success: true, busy: fileKey === busyFile,
+            activeOperation: fileKey === busyFile ? { name: 'find_assets', mutating: false, elapsedMs: 50000 } : null } });
+          return;
+        }
         commands.push({ fileKey, method: message.method });
         plugin.secure.send({ id: message.id, result: { success: true, result: { selection: [] }, fileContext: { fileKey } } });
       },
     });
     t.after(() => plugin.ws.terminate());
-    plugin.secure.send({ type: 'FILE_INFO', data: { fileKey, fileName: fileKey } });
+    plugin.secure.send({ type: 'FILE_INFO', data: { fileKey, fileName: fileKey, pluginBuild } });
     for (let i = 0; i < 100 && !broker.bridge.status().files.some(file => file.fileKey === fileKey); i++) await new Promise(resolve => setTimeout(resolve, 10));
     assert.ok(broker.bridge.status().files.some(file => file.fileKey === fileKey));
   }
@@ -66,8 +75,21 @@ test('stdio MCP: два чата читают один файл, includeFiles р
   const single = await call(first, { includeFiles: false });
   assert.equal(single.isError, undefined);
   assert.equal(single.structuredContent.fileContext.fileKey, 'stdio-file');
-  await addPlugin('second-file');
+  await addPlugin('second-file', 'older-plugin-build');
   const before = commands.length;
+  const targetStatus = await first.callTool({ name: 'get_status', arguments: { fileKey: 'stdio-file' } });
+  assert.equal(targetStatus.structuredContent.diagnostics.ready, true);
+  assert.equal(targetStatus.structuredContent.diagnostics.state, 'READY');
+  assert.deepEqual(probes, ['stdio-file'], 'адресный статус опрашивает только целевой Plugin API');
+  busyFile = 'stdio-file';
+  const busyStatus = await first.callTool({ name: 'get_status', arguments: { fileKey: 'stdio-file' } });
+  assert.equal(busyStatus.structuredContent.diagnostics.ready, false);
+  assert.equal(busyStatus.structuredContent.diagnostics.state, 'PLUGIN_BUSY');
+  assert.equal(busyStatus.structuredContent.execution[0].activeOperation.name, 'find_assets');
+  busyFile = null;
+  const allStatus = await first.callTool({ name: 'get_status', arguments: {} });
+  assert.equal(allStatus.structuredContent.diagnostics.ready, false);
+  assert.equal(allStatus.structuredContent.diagnostics.state, 'PLUGIN_OUTDATED');
   const inventory = await call(second);
   assert.equal(inventory.isError, undefined);
   const payload = JSON.parse(inventory.content[0].text);

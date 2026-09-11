@@ -1,3 +1,5 @@
+import { createFontService } from "./font-service.mjs";
+import { createReadService } from "./read-service.mjs";
 import { createMutationSafety } from "./mutation-safety.mjs";
 import { createFidelityRuntime } from "./fidelity.mjs";
 
@@ -8,8 +10,34 @@ function literal(value) {
   return serialized === undefined ? "undefined" : serialized.replaceAll("</", "<\\/");
 }
 
+function declaredSvgSize(svg) {
+  const opening = svg.replace(/<!--[\s\S]*?-->/g, "").match(/<svg(?=[\s/>])(?:"[^"]*"|'[^']*'|[^'">])*>/);
+  if (!opening) return null;
+  const attributes = {};
+  for (const match of opening[0].matchAll(/\s([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
+    attributes[match[1]] = match[2] ?? match[3];
+  }
+  // CSS and relative/unit-based sizes need Figma's importer; do not guess them.
+  if (attributes.style !== undefined) return null;
+  const pixels = value => {
+    if (value === undefined || !/^\s*(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?(?:px)?\s*$/i.test(value)) return null;
+    const number = parseFloat(value);
+    return number > 0 && Number.isFinite(number) ? number : null;
+  };
+  const width = pixels(attributes.width);
+  const height = pixels(attributes.height);
+  if (width && height) return { width, height };
+  if (attributes.width !== undefined || attributes.height !== undefined) return null;
+  const viewBox = attributes.viewBox?.trim().split(/[\s,]+/).map(Number);
+  if (viewBox?.length === 4 && viewBox.every(Number.isFinite) && viewBox[2] > 0 && viewBox[3] > 0) {
+    return { width: viewBox[2], height: viewBox[3] };
+  }
+  return null;
+}
+
 const helpers = `
 const DATA_KEY = ${JSON.stringify(DATA_KEY)};
+const declaredSvgSize = ${declaredSvgSize.toString()};
 const operationPage = figma.currentPage;
 const fidelity = (${createFidelityRuntime.toString()})(figma);
 function checkOperation() {
@@ -17,6 +45,7 @@ function checkOperation() {
     throw new Error("Время операции истекло; дальнейшие изменения остановлены");
   }
 }
+const readService = (${createReadService.toString()})(figma, checkOperation);
 
 function rgba(hex) {
   const raw = hex.replace("#", "");
@@ -109,6 +138,12 @@ function sizeSvg(node, item) {
 
 const fontLoads = new Map();
 let availableFonts;
+const fontService = (${createFontService.toString()})();
+async function waitForFontService(promise, font, stage) {
+  const result = await fontService.wait(promise, font, stage);
+  checkOperation();
+  return result;
+}
 function fontLoadFailure(font, detail, cause) {
   return new Error("Недоступен шрифт для загрузки «" + font.family + " / " + font.style + "». " + detail +
     " Причина Figma: " + String(cause && cause.message || cause).slice(0, 500) +
@@ -119,9 +154,11 @@ async function loadExactFont(font) {
   const key = JSON.stringify(font);
   if (!fontLoads.has(key)) fontLoads.set(key, (async () => {
     try {
-      await figma.loadFontAsync(font);
+      await waitForFontService(figma.loadFontAsync(font), font, "загрузка");
       return font;
     } catch (error) {
+      if (error.code === "FONT_SERVICE_TIMEOUT") throw error;
+      checkOperation();
       // Accept spelling differences only, never substitute another weight/family.
       if (typeof figma.listAvailableFontsAsync !== "function") {
         throw fontLoadFailure(font, "Проверка списка доступных шрифтов не поддерживается; отсутствие шрифта не подтверждено.", error);
@@ -129,8 +166,10 @@ async function loadExactFont(font) {
       let fonts;
       try {
         availableFonts ||= figma.listAvailableFontsAsync();
-        fonts = await availableFonts;
+        fonts = await waitForFontService(availableFonts, font, "список доступных шрифтов");
       } catch (listingError) {
+        if (listingError.code === "FONT_SERVICE_TIMEOUT") throw listingError;
+        checkOperation();
         throw fontLoadFailure(font, "Не удалось проверить список шрифтов: " + String(listingError.message || listingError).slice(0, 500) + "; отсутствие шрифта не подтверждено.", error);
       }
       const normalize = value => value.toLowerCase().replace(/[\\s_-]/g, "");
@@ -141,8 +180,10 @@ async function loadExactFont(font) {
           throw fontLoadFailure(font, "Шрифт есть в списке доступных Figma, но загрузить его не удалось.", error);
         }
         try {
-          await figma.loadFontAsync(matches[0]);
+          await waitForFontService(figma.loadFontAsync(matches[0]), matches[0], "загрузка эквивалентного начертания");
         } catch (aliasError) {
+          if (aliasError.code === "FONT_SERVICE_TIMEOUT") throw aliasError;
+          checkOperation();
           throw fontLoadFailure(font, "Найдено эквивалентное начертание «" + matches[0].style + "», но его загрузка также не удалась.", aliasError);
         }
         return matches[0];
@@ -259,12 +300,24 @@ async function applyEffects(node, item) {
   }
 }
 
-function findByKey(key) {
-  const matches = [...new Map(
-    operationPage.findAll().filter((node) => node.getPluginData?.(DATA_KEY) === key).map((node) => [node.id, node]),
-  ).values()];
-  if (matches.length > 1) throw new Error("Ключ неоднозначен, используйте id: " + key);
-  return matches[0] || null;
+let nodesByKey;
+function findByKey(key, reuseIndex = false) {
+  // Reuse only within synchronous target resolution, before the first await.
+  // Append and other conflict checks must see edits made while fonts/API wait.
+  let index = nodesByKey;
+  if (!reuseIndex || !index) {
+    index = new Map();
+    for (const node of operationPage.findAll()) {
+      const value = node.getPluginData?.(DATA_KEY);
+      if (!value || (!reuseIndex && value !== key)) continue;
+      if (!index.has(value)) index.set(value, new Map());
+      index.get(value).set(node.id, node);
+    }
+    if (reuseIndex) nodesByKey = index;
+  }
+  const matches = index.get(key);
+  if (matches?.size > 1) throw new Error("Ключ неоднозначен, используйте id: " + key);
+  return matches?.values().next().value || null;
 }
 
 function variantName(variant, fallback) {
@@ -281,15 +334,38 @@ let createdSection = null;
 const created = [];
 const previousSelection = [...(operationPage.selection || [])];
 
-async function prepareFonts(item) {
+async function prepareFonts(item, parent) {
+  if (parent && (item.x !== undefined || item.y !== undefined) &&
+      parent.layout?.direction !== "none" && item.layoutPositioning !== "ABSOLUTE") {
+    throw new Error("x/y требуют свободной раскладки родителя (layout.direction: none) или layoutPositioning: ABSOLUTE: " + item.name);
+  }
   await fidelity.validate(item);
+  if (item.type === "svg" && typeof item.width === "number" && typeof item.height === "number") {
+    const declared = declaredSvgSize(item.svg);
+    if (declared && Math.abs(declared.height * item.width / declared.width - item.height) > 0.1) {
+      throw new Error("SVG требует пропорциональные размеры: " + item.name);
+    }
+  }
+  if (item.effectStyleId && (await figma.getStyleByIdAsync(item.effectStyleId))?.type !== "EFFECT") {
+    throw new Error("Не найден стиль эффектов: " + item.effectStyleId);
+  }
   if (item.type === "text") {
+    let previousEnd = 0;
+    for (const run of item.textRuns || []) {
+      if (run.start < previousEnd || run.end <= run.start || run.end > (item.content || "").length) {
+        throw new Error("Диапазоны textRuns должны идти по порядку, не пересекаться и помещаться в текст: " + item.name);
+      }
+      previousEnd = run.end;
+    }
     const styleFontName = item.textStyleId ? await styleFont(item.textStyleId) : null;
     const base = styleFontName || { family: "Inter", style: "Regular" };
     const resolvedBase = await loadExactFont({
       family: item.fontFamily ?? base.family,
       style: item.fontStyle ?? item.fontWeight ?? base.style,
     });
+    // applyText loads the initial font of a newly created empty TEXT before
+    // assigning the requested one. Include that requirement before any nodes.
+    await loadExactFont({ family: "Inter", style: "Regular" });
     for (const run of item.textRuns || []) {
       const runStyle = run.textStyleId ? await styleFont(run.textStyleId) : null;
       if (run.fontFamily !== undefined || run.fontStyle !== undefined || run.fontWeight !== undefined) {
@@ -301,7 +377,7 @@ async function prepareFonts(item) {
       }
     }
   }
-  for (const child of item.children || []) await prepareFonts(child);
+  for (const child of item.children || []) await prepareFonts(child, item);
 }
 
 async function build(item, parent) {
@@ -406,6 +482,7 @@ try {
     throw new Error("Узел с ключом " + spec.key + " уже существует");
   }
   await prepareFonts(spec);
+  checkOperation();
   if (figma.currentPage !== operationPage) throw new Error("Страница изменилась во время проверки");
   if (options.dryRun) return { ready: true };
 
@@ -475,7 +552,7 @@ try {
 
 export function buildPatchCode({ patches, ignoreMissing, screenshotKey }) {
   return `${helpers}
-const safety = (${createMutationSafety.toString()})(figma);
+const safety = (${createMutationSafety.toString()})(figma, font => waitForFontService(figma.loadFontAsync(font), font, "загрузка исходного шрифта"));
 const patches = ${literal(patches)};
 const ignoreMissing = ${literal(ignoreMissing)};
 const screenshotKey = ${literal(screenshotKey)};
@@ -487,7 +564,7 @@ const targetLabel = (patch) => patch.key || patch.id;
 try {
 resolved = await Promise.all(patches.map(async (patch) => ({
   patch,
-  node: patch.key ? findByKey(patch.key) : await figma.getNodeByIdAsync(patch.id),
+  node: patch.key ? findByKey(patch.key, true) : await figma.getNodeByIdAsync(patch.id),
 })));
 const missing = resolved.filter((item) => !item.node).map((item) => targetLabel(item.patch));
 if (missing.length && !ignoreMissing) {
@@ -775,6 +852,8 @@ function inspect(node, level) {
     // Keep raw paints per segment: gradients/variables must not be mistaken for a solid color.
     if (segments.length && needsRuns) item.textRunFills = segments.map(segment => ({ start: segment.start, end: segment.end, fills: segment.fills }));
   }
+  if ("reactions" in node) item.reactions = node.reactions;
+  if (node.type === "TEXT") item.hyperlinks = node.getStyledTextSegments(["hyperlink"]).filter(segment => segment.hyperlink).map(({ start, end, hyperlink }) => ({ start, end, hyperlink }));
   if (node.type === "INSTANCE") item.componentProperties = node.componentProperties;
   if (node.type === "COMPONENT") item.variantProperties = node.variantProperties;
   if (node.type === "COMPONENT_SET") item.variantGroupProperties = node.variantGroupProperties;
@@ -820,7 +899,10 @@ function inspect(node, level) {
 }
 
 const requested = nodeIds || (nodeId ? [nodeId] : null);
-const roots = requested ? await Promise.all(requested.map((id) => figma.getNodeByIdAsync(id))) : operationPage.selection;
+const roots = requested ? await Promise.all(requested.map((id) => readService.node(id))).catch(error => {
+  error.operationStatus = "not_applied";
+  throw error;
+}) : operationPage.selection;
 return {
   page: { id: operationPage.id, name: operationPage.name },
   selection: roots.filter(Boolean).map((node) => inspect(node, 0)).filter(Boolean),

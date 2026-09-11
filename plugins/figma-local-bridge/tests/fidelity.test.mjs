@@ -106,6 +106,37 @@ test("SVG rescale меняет масштаб содержимого, непро
   assert.equal(mock.nodes.size, before);
 });
 
+test("dryRun отклоняет непропорциональный SVG из OpenCode до создания узлов", async () => {
+  const mock = createFigmaMock();
+  const before = mock.nodes.size;
+  // Размеры экспортированного логотипа и запрошенная ширина из iomoney-figma.json.
+  const value = input([{ type: "svg", key: "logo", name: "yoomoney-logo+text-rus",
+    svg: '<svg width="183" height="40" viewBox="0 0 183 40" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 0H183V40H0Z"/></svg>',
+    width: 182.14, height: 40 }]);
+  value.dryRun = true;
+  await assert.rejects(render(mock, value), /SVG требует пропорциональные размеры/);
+  assert.equal(mock.nodes.size, before);
+  // Existing error cleanup restores the selection even when nothing was built.
+  assert.deepEqual(mock.figma.currentPage.selection, []);
+  assert.deepEqual(mock.writes.filter(write => write.field !== "selection"), []);
+});
+
+test("dryRun принимает пропорциональный SVG и учитывает viewport перед viewBox без записи", async () => {
+  for (const svg of [
+    '<svg width="183" height="40" viewBox="0 0 183 40"/>',
+    "<svg viewBox='0,0,183,40'/>",
+    '<svg width="183px" height="40px" viewBox="0 0 100 100"/>',
+  ]) {
+    const mock = createFigmaMock();
+    const before = mock.nodes.size;
+    const value = input([{ type: "svg", key: "logo", name: "Логотип", svg, width: 366, height: 80 }]);
+    value.dryRun = true;
+    assert.equal((await render(mock, value)).ready, true);
+    assert.equal(mock.nodes.size, before);
+    assert.equal(mock.writes.length, 0);
+  }
+});
+
 test("append сохраняет paints, absolute position и textAutoResize; инспектор помечает скрытые слои", async () => {
   const mock = createFigmaMock();
   const create = mock.figma.createFrame;

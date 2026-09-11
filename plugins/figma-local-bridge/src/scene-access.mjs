@@ -1,12 +1,14 @@
 import { createMutationSafety } from "./mutation-safety.mjs";
+import { createFontService } from "./font-service.mjs";
+import { createReadService } from "./read-service.mjs";
 
 // Self-contained helpers serialized into generated Plugin API operations.
-export function createSceneAccess(figma, check) {
+export function createSceneAccess(figma, check, loadFont = font => figma.loadFontAsync(font), readService) {
   const page = figma.currentPage;
   const dataKey = "codex-spec-key";
   const copy = (value) => value === undefined || typeof value === "symbol" ? value : JSON.parse(JSON.stringify(value));
   async function node(id) {
-    const result = await figma.getNodeByIdAsync(id);
+    const result = readService ? await readService.node(id) : await figma.getNodeByIdAsync(id);
     check();
     if (!result || result.removed) throw new Error("Узел не найден: " + id);
     return result;
@@ -56,14 +58,22 @@ export function createSceneAccess(figma, check) {
     error.rollbackErrors = errors;
     throw error;
   }
-  return { page, dataKey, copy, node, ancestors, onPage, editable, structural, parent, placement, stablePage, check, failWithRollback };
+  return { page, dataKey, copy, node, read: readService?.wait, ancestors, onPage, editable, structural, parent, placement, stablePage, check, failWithRollback, loadFont };
 }
 
-export function compileOperation(operation, input, { mutationSafety = false } = {}) {
+export function compileOperation(operation, input, { mutationSafety = false, readOnly = false } = {}) {
   const json = JSON.stringify(input).replaceAll("</", "<\\/");
-  return `const safety = ${mutationSafety ? `(${createMutationSafety.toString()})(figma)` : "null"};
-  const access = (${createSceneAccess.toString()})(figma, () => {
+  return `const fontService = (${createFontService.toString()})();
+  const check = () => {
     if (typeof executionControl !== "undefined" && executionControl.cancelled) throw new Error("Время операции истекло");
-  });
-  return await (${operation.toString()})(figma, ${json}, access, safety);`;
+  };
+  const loadFont = async font => {
+    await fontService.wait(figma.loadFontAsync(font), font, "загрузка исходного шрифта");
+    check();
+  };
+  const safety = ${mutationSafety ? `(${createMutationSafety.toString()})(figma, loadFont)` : "null"};
+  const readService = (${createReadService.toString()})(figma, check);
+  const access = (${createSceneAccess.toString()})(figma, check, loadFont, readService);
+  try { return await (${operation.toString()})(figma, ${json}, access, safety); }
+  catch (error) { ${readOnly ? 'error.operationStatus = "not_applied";' : ''} throw error; }`;
 }

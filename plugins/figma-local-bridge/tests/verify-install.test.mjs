@@ -35,6 +35,16 @@ async function temporary(t) {
   return directory;
 }
 
+test('проверка использует отдельную ревизию broker и не доверяет ready без версий', () => {
+  const status = { connected: true, runtime: { revision: 'old-full', brokerRevision: 'broker' },
+    diagnostics: { sourceRevision: 'mcp', mcp: { revision: 'mcp' }, expectedBrokerRevision: 'broker', expectedPluginBuild: 'plugin' },
+    files: [{ pluginBuild: 'plugin' }] };
+  assert.equal(runtimeVersionsCurrent(status), true);
+  status.runtime.brokerRevision = 'old-broker';
+  status.diagnostics.ready = true;
+  assert.equal(runtimeVersionsCurrent(status), false);
+});
+
 test('проверка действительно использует command из manifest и не подменяет его текущим Node', async t => {
   const pluginRoot = await temporary(t);
   await writeFile(join(pluginRoot, '.mcp.json'), JSON.stringify({ mcpServers: { 'figma-local': {
@@ -53,7 +63,7 @@ test('проверка отклоняет manifest без cwd до запуск�
 
 test('проверка исходников не выдаёт проверку MCP за живое соединение с Figma', async () => {
   const report = await verifyInstallation();
-  assert.equal(report.tools.length, 11);
+  assert.equal(report.tools.length, 13);
   assert.equal(report.liveChecked, false);
   assert.equal(report.files, undefined);
 });
@@ -61,7 +71,7 @@ test('проверка исходников не выдаёт проверку M
 test('проверка OpenCode запускает MCP из opencode.json и проверяет полное чтение', async () => {
   const report = await verifyInstallation({ opencode: true });
   assert.match(report.configPath, /opencode.json$/);
-  assert.equal(report.tools.length, 11);
+  assert.equal(report.tools.length, 13);
   assert.ok(report.inspectFields.includes('nodeIds'));
   assert.ok(report.inspectFields.includes('detail'));
   assert.equal(report.liveChecked, false);

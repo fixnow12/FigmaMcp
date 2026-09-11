@@ -486,6 +486,17 @@ export class FigmaBridge {
     };
   }
 
+  async executionStatus(fileKey) {
+    try {
+      const response = await this.wsServer.sendCommand("GET_EXECUTION_STATUS", {}, 3000, fileKey);
+      if (!response?.success || typeof response.busy !== 'boolean') throw new Error('Invalid execution status');
+      return { fileKey, responsive: true, busy: response.busy, pendingExecutions: response.pendingExecutions,
+        activeOperation: response.activeOperation || null };
+    } catch (error) {
+      return { fileKey, responsive: false, code: error.code || 'PLUGIN_UNRESPONSIVE', error: error.message };
+    }
+  }
+
   status() {
     return {
       runtime: runtimeInfo,
@@ -504,7 +515,8 @@ export class FigmaBridge {
 
   async captureScreenshot(nodeId, { scale = 1, fileKey, expectedSocket } = {}) {
     await this.waitForConnection();
-    const response = await this.wsServer.sendCommand("CAPTURE_SCREENSHOT", { nodeId, format: "PNG", scale }, 30000, fileKey, expectedSocket);
+    // The UI export has a 30s budget; leave room for its 2s readiness probe and relay.
+    const response = await this.wsServer.sendCommand("CAPTURE_SCREENSHOT", { nodeId, format: "PNG", scale }, 35000, fileKey, expectedSocket);
     if (!response?.success) throw remoteError(response?.error || "Не удалось получить снимок Figma", response);
     return response.image;
   }

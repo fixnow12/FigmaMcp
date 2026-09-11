@@ -6,6 +6,40 @@ import { createFigmaMock, executeGenerated } from "./helpers/figma-mock.mjs";
 
 const run = (mock, input) => executeGenerated(mock.figma, buildPatchCode({ ignoreMissing: false, ...patchNodesSchema.parse(input) }));
 
+test("пакет по ключам обходит страницу один раз и обновляет индекс между операциями", async () => {
+  const mock = createFigmaMock();
+  const nodes = Array.from({ length: 40 }, (_, i) => mock.key(mock.make("FRAME"), "target-" + i));
+  let scans = 0;
+  const findAll = mock.page.findAll.bind(mock.page);
+  mock.page.findAll = (...args) => { scans++; return findAll(...args); };
+  const patches = nodes.map((node, i) => ({ key: "target-" + i, set: { name: "После " + i } }));
+  await run(mock, { patches });
+  nodes.forEach((node, i) => assert.equal(node.name, "После " + i));
+  assert.equal(scans, 1, "один проход на весь пакет независимо от числа ключей");
+  mock.key(nodes[0], "renamed");
+  await assert.rejects(run(mock, { patches: [{ key: "target-0", set: { name: "Ошибка" } }] }), /не найден/i);
+  await run(mock, { patches: [{ key: "renamed", set: { name: "Новый ключ" } }] });
+  assert.equal(nodes[0].name, "Новый ключ");
+});
+
+test("append обнаруживает ключ, добавленный извне во время загрузки шрифта", async () => {
+  const mock = createFigmaMock();
+  const parent = mock.key(mock.make("FRAME", { name: "До" }), "parent");
+  const loadFont = mock.figma.loadFontAsync;
+  let external;
+  mock.figma.loadFontAsync = async font => {
+    if (!external) external = mock.key(mock.make("TEXT"), "added");
+    return loadFont(font);
+  };
+  await assert.rejects(run(mock, { patches: [{ key: "parent", set: { name: "После" }, append: [
+    { key: "added", name: "Добавленный", type: "text", content: "Текст" },
+  ] }] }), /ключом уже существует/);
+  assert.equal(parent.name, "До");
+  assert.equal(parent.children.length, 0);
+  assert.equal(external.removed, false);
+  assert.equal(mock.page.findAll(node => node.getPluginData('codex-spec-key') === 'added').length, 1);
+});
+
 test("неверный тип второго патча отклоняется до изменения первого узла", async () => {
   const mock = createFigmaMock();
   const first = mock.make("FRAME", { name: "До" });

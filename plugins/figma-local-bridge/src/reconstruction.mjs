@@ -5,6 +5,7 @@ import { buildInspectCode, buildRenderCode } from "./figma-code.mjs";
 import { parseRenderScreenInput, normalizeScreenSpec, publicDesignNodeSchema } from "./schemas.mjs";
 import { fidelityFields } from "./fidelity.mjs";
 import { toolSuccess, toolFailure } from "./tool-results.mjs";
+import { createFontService } from "./font-service.mjs";
 
 const changeSchema = z.object({
   sourceId: z.string().min(1).describe("ID узла внутри исходного экрана из inspect_selection. Изменения применяются только к новой сборке."),
@@ -50,6 +51,7 @@ const svgAssets = {};
 let svgBytes = 0;
 const fontErrors = [];
 const fonts = new Map();
+const fontService = (${createFontService.toString()})();
 async function collect(item) {
   if (item.effectiveVisible === false || discarded.has(item.id)) return;
   if (item.fontFamily && item.fontStyle) fonts.set(JSON.stringify([item.fontFamily, item.fontStyle]), { family: item.fontFamily, style: item.fontStyle });
@@ -76,8 +78,13 @@ async function collect(item) {
 }
 if (snapshot.coverage.complete) for (const root of snapshot.selection) await collect(root);
 for (const font of fonts.values()) {
-  try { await figma.loadFontAsync(font); }
-  catch (error) { fontErrors.push({ ...font, reason: String(error.message || error) }); }
+  try {
+    await fontService.wait(figma.loadFontAsync(font), font, "загрузка исходного шрифта");
+  } catch (error) {
+    if (error.code === "FONT_SERVICE_TIMEOUT") { error.operationStatus = "not_applied"; throw error; }
+    fontErrors.push({ ...font, reason: String(error.message || error) });
+  }
+  if (typeof executionControl !== "undefined" && executionControl.cancelled) throw new Error("Время операции истекло");
 }
 return { snapshot, svgAssets, fonts: [...fonts.values()], fontErrors };`;
 }

@@ -28,7 +28,7 @@ try {
     if (!tools.some(tool => tool.name === name)) throw new Error(`Инструмент ${name} отсутствует в ${pluginRoot}`);
     const args = values.args ? JSON.parse(await readFile(resolve(values.args), 'utf8')) : {};
     // Never retry calls: a timeout does not prove that a mutation was not applied.
-    const response = await client.callTool({ name, arguments: args }, undefined, { timeout: 120000 });
+    const response = await client.callTool({ name, arguments: args }, undefined, { timeout: 150000 });
     const payload = response.structuredContent || response.content.filter(item => item.type === 'text').map(item => item.text);
     if (values.output) {
       const output = resolve(values.output);

@@ -8,6 +8,23 @@ import {
   buildUseComponentCode,
 } from "../src/figma-code.mjs";
 
+test('составной ID читается по точному ID внутри экземпляра без зависающего адресного lookup', async () => {
+  const mock = createFigmaMock();
+  const instance = mock.make('INSTANCE');
+  const nested = mock.make('FRAME', {}, instance);
+  nested.id = `I${instance.id};46370:23327`;
+  const original = mock.figma.getNodeByIdAsync;
+  const lookups = [];
+  mock.figma.getNodeByIdAsync = async id => {
+    lookups.push(id);
+    if (id === nested.id) throw new Error('Synthetic instance lookup failed');
+    return original(id);
+  };
+  const result = await executeGenerated(mock.figma, buildInspectCode({ nodeId: nested.id, depth: 0, maxNodes: 20 }));
+  assert.equal(result.selection[0].id, nested.id);
+  assert.deepEqual(lookups, [instance.id]);
+});
+
 test("успешная сборка новой спеки не объявляет сходство с исходником проверенным", async () => {
   const mock = createFigmaMock();
   const result = await executeGenerated(mock.figma, buildRenderCode({
