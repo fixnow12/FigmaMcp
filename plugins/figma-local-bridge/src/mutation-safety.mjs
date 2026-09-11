@@ -1,5 +1,5 @@
 // Serialized into Plugin API code. Keep this function self-contained.
-export function createMutationSafety(figma) {
+export function createMutationSafety(figma, requestFont = font => figma.loadFontAsync(font)) {
   const fonts = new Map();
   const fieldMap = {
     ...Object.fromEntries(["fills", "strokes", "isMask", "maskType", "topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius", "cornerSmoothing", "strokeAlign", "strokeTopWeight", "strokeBottomWeight", "strokeLeftWeight", "strokeRightWeight", "dashPattern", "blendMode", "rotation", "layoutPositioning", "constraints", "minWidth", "maxWidth", "minHeight", "maxHeight", "textAutoResize", "textAlignVertical", "paragraphSpacing", "paragraphIndent"].map(k => [k, k])),
@@ -17,7 +17,7 @@ export function createMutationSafety(figma) {
 
   function loadFont(font) {
     const key = JSON.stringify(font);
-    if (!fonts.has(key)) fonts.set(key, figma.loadFontAsync(font));
+    if (!fonts.has(key)) fonts.set(key, requestFont(font));
     return fonts.get(key);
   }
 

@@ -12,8 +12,11 @@ export function runtimeVersionsCurrent(status) {
   const diagnostics = status.diagnostics;
   const revision = diagnostics?.sourceRevision;
   const pluginBuild = diagnostics?.expectedPluginBuild;
+  const brokerCurrent = diagnostics?.expectedBrokerRevision && status.runtime?.brokerRevision
+    ? status.runtime.brokerRevision === diagnostics.expectedBrokerRevision
+    : status.runtime?.revision === revision;
   return Boolean(status.connected && revision && pluginBuild &&
-    diagnostics.mcp?.revision === revision && status.runtime?.revision === revision &&
+    diagnostics.mcp?.revision === revision && brokerCurrent &&
     status.files?.length && status.files.every(file => file.pluginBuild === pluginBuild));
 }
 
@@ -32,7 +35,7 @@ if (opencode) {
 // Codex otherwise inherits the task directory, not the installed plugin directory.
 if (!opencode) assert.equal(config.cwd, '.', 'MCP должен запускаться из корня установленного плагина');
 const serverCwd = resolve(dirname(configPath), config.cwd);
-const expectedTools = ['bind_variables', 'clone_nodes', 'export_assets', 'find_assets', 'get_status', 'inspect_selection', 'move_nodes', 'patch_nodes', 'recreate_screen', 'render_screen', 'use_component'];
+const expectedTools = ['bind_variables', 'clone_nodes', 'export_assets', 'find_assets', 'get_status', 'inspect_selection', 'move_nodes', 'patch_nodes', 'recreate_screen', 'render_screen', 'set_reactions', 'set_text_links', 'use_component'];
 
 const transport = new StdioClientTransport({
   // Do not substitute process.execPath: that hides a broken command/PATH.

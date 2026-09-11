@@ -90,6 +90,51 @@ async function render(figma, input = renderInput()) {
 async function patch(figma, patches) { return execute(buildPatchCode(patchNodesSchema.parse({ patches })), figma); }
 async function inspect(figma, nodeId) { return (await execute(buildInspectCode({ nodeId, depth: 4, maxNodes: 50 }), figma)).selection[0]; }
 
+test('render dryRun проверяет шрифты без создания и изменения существующего результата', async () => {
+  const { figma, nodes } = fixture();
+  const initial = await render(figma);
+  const count = nodes.size;
+  const selection = [...figma.currentPage.selection];
+  const result = await render(figma, { ...renderInput(), dryRun: true });
+  assert.equal(result.ready, true);
+  assert.equal(nodes.size, count);
+  assert.ok(nodes.has(initial.rootId));
+  assert.deepEqual(figma.currentPage.selection, selection);
+  await assert.rejects(render(figma, { ...renderInput({ fontStyle: 'Unavailable' }), dryRun: true }), /Недоступен шрифт/);
+  assert.equal(nodes.size, count);
+});
+
+test('dryRun обнаруживает координаты в Auto Layout до создания обложки', async () => {
+  const { figma, nodes } = fixture();
+  const count = nodes.size;
+  await assert.rejects(render(figma, { ...renderInput({ x: 64, y: 418 }), dryRun: true }), /x\/y.*раскладк/);
+  assert.equal(nodes.size, count);
+  const input = { ...renderInput({ x: 64, y: 418 }, { layout: { direction: 'none' } }), dryRun: true };
+  assert.equal((await render(figma, input)).ready, true);
+});
+
+test('dryRun отклоняет недопустимые диапазоны и отсутствующий стиль эффектов до записи', async () => {
+  for (const input of [renderInput({ content: 'Hi', textRuns: [{ start: 0, end: 999, fontSize: 15 }] }),
+    renderInput({}, { effectStyleId: 'missing' })]) {
+    const { figma, nodes } = fixture();
+    const count = nodes.size;
+    await assert.rejects(render(figma, { ...input, dryRun: true }), /textRuns|стиль эффектов/);
+    assert.equal(nodes.size, count);
+  }
+});
+
+test('dryRun проверяет также исходный шрифт пустого нового TEXT', async () => {
+  const { figma, nodes } = fixture();
+  const originalLoad = figma.loadFontAsync;
+  figma.loadFontAsync = async font => {
+    if (font.family === 'Inter') throw new Error('Default font unavailable');
+    return originalLoad(font);
+  };
+  const count = nodes.size;
+  await assert.rejects(render(figma, { ...renderInput(), dryRun: true }), /Inter/);
+  assert.equal(nodes.size, count);
+});
+
 test("render принимает числовые строки и сохраняет межстрочный интервал в Figma", async () => {
   const { figma } = fixture();
   const { rootId } = await render(figma, renderInput({ lineHeight: "28", fontSize: "20", letterSpacing: "-0.5" }));

@@ -13,3 +13,4 @@ migration-backup/
 *.pem
 *.key
 /Плагин Figma
+/.tmp-figma/

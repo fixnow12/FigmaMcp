@@ -35,7 +35,7 @@ test("MCP публикует типизированные схемы без unkn
     for (const tool of tools) checkArrays(tool.inputSchema, tool.name);
     assert.deepEqual(
       tools.map((tool) => tool.name).sort(),
-      ["bind_variables", "clone_nodes", "export_assets", "find_assets", "get_status", "inspect_selection", "move_nodes", "patch_nodes", "recreate_screen", "render_screen", "use_component"],
+      ["bind_variables", "clone_nodes", "export_assets", "find_assets", "get_status", "inspect_selection", "move_nodes", "patch_nodes", "recreate_screen", "render_screen", "set_reactions", "set_text_links", "use_component"],
     );
 
     const render = tools.find((tool) => tool.name === "render_screen");
@@ -49,7 +49,11 @@ test("MCP публикует типизированные схемы без unkn
     assert.equal(change.properties.set.properties.content.type, "string");
     assert.equal(change.properties.nodes.type, "array");
     assert.equal(change.properties.nodes.items.properties.type.type, "string");
-    const status = await client.callTool({ name: "get_status", arguments: {} });
+    const statusTool = tools.find(tool => tool.name === "get_status");
+    assert.equal(statusTool.inputSchema.properties.fileKey?.type, "string");
+    const status = await client.callTool({ name: "get_status", arguments: { fileKey: "missing-file" } });
+    assert.deepEqual(status.structuredContent.target, { fileKey: "missing-file", connected: false });
+    assert.equal(status.structuredContent.diagnostics.ready, false);
     assert.equal(status.isError, undefined);
     assert.equal(status.structuredContent.connected, false);
     assert.match(status.structuredContent.pairingReference, /^\d+:/);
@@ -146,6 +150,14 @@ test("MCP → WebSocket → сгенерированный патч: ошибк�
       });
     });
     await registered;
+    const missingTarget = await client.callTool({ name: "get_status", arguments: { fileKey: "missing-file" } });
+    assert.equal(missingTarget.structuredContent.connected, true);
+    assert.deepEqual(missingTarget.structuredContent.target, { fileKey: "missing-file", connected: false });
+    assert.equal(missingTarget.structuredContent.diagnostics.ready, false);
+    assert.ok(missingTarget.structuredContent.diagnostics.issues.some(issue => issue.code === "TARGET_FILE_NOT_CONNECTED"));
+    const presentTarget = await client.callTool({ name: "get_status", arguments: { fileKey: "test-file" } });
+    assert.deepEqual(presentTarget.structuredContent.target, { fileKey: "test-file", connected: true });
+    assert.equal(operations.length, 0, "проверка статуса не посылает команды на холст");
     const response = await client.callTool({ name: "patch_nodes", arguments: {
       fileKey: "test-file", patches: [{ id: text.id, set: { content: "Готово", fontSize: 18 } }], screenshotKey: "title",
     } });
@@ -170,11 +182,39 @@ test("MCP → WebSocket → сгенерированный патч: ошибк�
     assert.equal(mock.nodes.get(copyId).boundVariables.fontSize.id, "font-size");
     assert.equal(text.fontSize, 18);
     assert.deepEqual(operations.map((operation) => operation.name), ["patch_nodes", "find_assets", "clone_nodes", "move_nodes", "bind_variables"]);
+    const linkArgs = { fileKey: "test-file", links: [{ nodeId: text.id, target: { type: "URL", value: "https://example.com" } }] };
+    const checked = await client.callTool({ name: "set_text_links", arguments: { ...linkArgs, dryRun: true, screenshot: true } });
+    assert.equal(checked.structuredContent.operationStatus, "read");
+    assert.equal(checked.structuredContent.result.dryRun, true);
+    assert.equal(checked.structuredContent.screenshot, undefined);
+    assert.equal(text.hyperlink, null);
+    const linked = await client.callTool({ name: "set_text_links", arguments: linkArgs });
+    assert.equal(linked.isError, undefined);
+    assert.equal(linked.structuredContent.operationStatus, "applied");
+    assert.equal(text.hyperlink.value, "https://example.com");
+    text.reactions = [];
+    text.setReactionsAsync = async function(reactions) { this.reactions = reactions; };
+    const reacted = await client.callTool({ name: "set_reactions", arguments: { fileKey: "test-file", updates: [{ nodeId: text.id, reactions: [{ trigger: { type: "ON_CLICK" }, actions: [{ type: "BACK" }] }] }] } });
+    assert.equal(reacted.isError, undefined);
+    assert.equal(text.reactions[0].actions[0].type, "BACK");
+    assert.deepEqual(operations.slice(-3).map(op => [op.name, op.mutating]), [["set_text_links", false], ["set_text_links", true], ["set_reactions", true]]);
     assert.equal(operations[1].mutating, false);
     assert.ok(operations.every((operation) => operation.fileName === "Тест" && operation.pageId === mock.page.id));
     const invalid = await client.callTool({ name: "patch_nodes", arguments: { fileKey: "test-file", patches: [{ id: mock.page.id, set: { content: "Нельзя" } }] } });
     assert.equal(invalid.isError, true);
     assert.equal(invalid.structuredContent.operationStatus, "not_applied");
+    const countBeforePreflight = mock.nodes.size;
+    const preflight = await client.callTool({ name: "render_screen", arguments: {
+      fileKey: "test-file", dryRun: true, screenshot: true,
+      spec: { key: "cover", name: "Обложка", type: "screen", width: 1440, height: 900,
+        nodes: [{ type: "text", key: "cover-title", name: "Название", content: "Layouts & Grid", fontFamily: "Factor IO", fontStyle: "Bold" }] },
+    } });
+    assert.equal(preflight.isError, undefined);
+    assert.equal(preflight.structuredContent.operationStatus, "read");
+    assert.equal(preflight.structuredContent.result.ready, true);
+    assert.equal(preflight.structuredContent.screenshot, undefined);
+    assert.equal(mock.nodes.size, countBeforePreflight);
+    assert.equal(operations.at(-1).mutating, false);
   } finally {
     socket?.terminate();
     await client.close();

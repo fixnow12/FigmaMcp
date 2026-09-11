@@ -470,12 +470,15 @@ async function resolveSlotNode(params) {
 // A timeout reports uncertainty, but must not release the lock while code is still running.
 var executeCodeQueue = Promise.resolve();
 var pendingExecutions = 0;
+var activeExecution = null;
 figma.ui.onmessage = async (msg) => {
 
   // This probe bypasses the execution queue and never reads or changes the canvas.
   if (msg.type === 'GET_EXECUTION_STATUS') {
     figma.ui.postMessage({ type: 'GET_EXECUTION_STATUS_RESULT', requestId: msg.requestId,
-      success: true, busy: pendingExecutions > 0, pendingExecutions: pendingExecutions });
+      success: true, busy: pendingExecutions > 0, pendingExecutions: pendingExecutions,
+      activeOperation: activeExecution ? { name: activeExecution.name, mutating: activeExecution.mutating,
+        elapsedMs: Math.max(0, Date.now() - activeExecution.startedAt), timedOut: activeExecution.timedOut } : null });
     return;
   }
 
@@ -490,6 +493,8 @@ figma.ui.onmessage = async (msg) => {
     executeCodeQueue = new Promise(function(resolve) { releaseExecution = resolve; });
     figma.ui.postMessage({ type: 'OPERATION_PROGRESS', requestId: msg.requestId, state: 'queued' });
     await previousExecution;
+    activeExecution = { name: msg.operation && msg.operation.name || 'unknown',
+      mutating: !msg.operation || msg.operation.mutating !== false, startedAt: Date.now(), timedOut: false };
     var executionControl = { cancelled: false };
     var executionTimer;
     try {
@@ -521,6 +526,7 @@ figma.ui.onmessage = async (msg) => {
       var timeoutPromise = new Promise(function(_, reject) {
         executionTimer = setTimeout(function() {
           executionControl.cancelled = true;
+          activeExecution.timedOut = true;
           var timeoutError = new Error('Execution timed out after ' + timeoutMs + 'ms. Execution may still be running.');
           timeoutError.operationStatus = 'unknown';
           reject(timeoutError);
@@ -618,7 +624,11 @@ figma.ui.onmessage = async (msg) => {
         success: false,
         error: errorName + ': ' + errorMsg,
         operationStatus: error.operationStatus || 'unknown',
-        rollbackErrors: error.rollbackErrors || []
+        rollbackErrors: error.rollbackErrors || [],
+        code: error.code,
+        nextStep: error.nextStep,
+        fileKey: error.fileKey,
+        blockers: error.blockers
       });
     } finally {
       if (executionTimer) clearTimeout(executionTimer);
@@ -626,6 +636,7 @@ figma.ui.onmessage = async (msg) => {
         if (codePromise) await codePromise.catch(function() {});
       } finally {
         pendingExecutions--;
+        activeExecution = null;
         releaseExecution();
       }
     }

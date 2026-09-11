@@ -518,6 +518,7 @@ export function adaptPublicScreenSpec(spec) {
 
 export const renderScreenInputSchema = {
   spec: screenSpecPublicSchema,
+  dryRun: z.boolean().optional().describe("Проверить спецификацию, свойства и загрузку шрифтов без создания узлов. Не проверяет итоговый рендер SVG, клики или визуальное совпадение."),
   replace: z.boolean().optional(),
   sectionName: nameSchema.optional(),
   position: z.object({ x: z.number(), y: z.number() }).strict().optional(),

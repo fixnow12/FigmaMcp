@@ -2,6 +2,30 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { runToolOperation, toolFailure } from "../src/tool-results.mjs";
 import { parseRenderScreenInput } from "../src/schemas.mjs";
+import { readFile } from 'node:fs/promises';
+import { FigmaBridge } from '../src/bridge.mjs';
+
+test('внешний MCP бюджет покрывает запись и снимок с проверками подключения', async () => {
+  const config = JSON.parse(await readFile(new URL('../../../opencode.json', import.meta.url), 'utf8'));
+  const timeouts = [];
+  const bridge = new FigmaBridge();
+  bridge.waitForConnection = async () => {};
+  bridge.wsServer = {
+    getConnectedFiles: () => [{ fileKey: 'guide' }],
+    sendCommand: async (_method, _params, timeout) => {
+      timeouts.push(timeout);
+      return { success: true, result: { rootId: '1:2' }, image: { base64: 'AA==' } };
+    },
+  };
+  // Largest supported execution, followed by a preview, are sequential phases.
+  await bridge.execute('return 1', { fileKey: 'guide', timeout: 60000 });
+  await bridge.captureScreenshot('1:2', { fileKey: 'guide' });
+  assert.ok(timeouts[1] > 30000 + 2000, 'снимок должен пережить экспорт и probe готовности');
+  const startupBudget = 6000 + 5000 + 5000; // discovery, status, plugin startup grace
+  const perPhaseRoutingBudget = 10000 + 5000; // connection resolution and file queue
+  assert.ok(config.mcp['figma-local'].timeout >= startupBudget + 2 * perPhaseRoutingBudget + timeouts[0] + timeouts[1],
+    'клиент должен получить applied/unknown и результат снимка прежде собственного тайм-аута');
+});
 
 test("ошибки схемы возвращают читаемые пути полей без вложенного экранированного JSON", () => {
   let error;

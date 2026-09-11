@@ -45,6 +45,24 @@ test('установка создаёт персональный плагин б
   }
 });
 
+test('первый статус по защищённому соединению дожидается позднего FILE_INFO', async t => {
+  const { directory, installation } = await fixture(t);
+  const broker = await startBroker({ directory, port: 0 });
+  t.after(() => broker.stop());
+  const client = new BrokerClient({ directory, ports: [broker.bridge.port], autoStart: false });
+  t.after(() => client.stop());
+  await client.connect();
+  assert.equal(broker.bridge.status().connected, false);
+  const pendingStatus = client.status();
+  await pause(100);
+  const plugin = await connectSecure(broker.bridge.port, identityFor(installation, 'plugin'));
+  t.after(() => plugin.ws.terminate());
+  plugin.secure.send({ type: 'FILE_INFO', data: { fileKey: 'late-guide', fileName: 'Guide' } });
+  const status = await pendingStatus;
+  assert.equal(status.connected, true);
+  assert.equal(status.files[0].fileKey, 'late-guide');
+});
+
 test('единый broker: автосопряжение, общий доступ без захвата файлов, явный выбор и переподключение плагина', async t => {
   const { directory, installation } = await fixture(t);
   const broker = await startBroker({ directory, port: 0 });
@@ -96,6 +114,19 @@ test('broker отклоняет чужую установку и подмену 
     { ...identityFor(installation, 'plugin'), serverKey: channel.publicKey(channel.newSeed()) },
   ]) await assert.rejects(connectSecure(broker.bridge.port, identity));
   assert.equal(broker.bridge.status().connected, false);
+});
+
+test('неудачный handshake окончателен: замена каталога не оживляет тот же MCP', async t => {
+  const trusted = await fixture(t);
+  const foreign = await fixture(t);
+  const broker = await startBroker({ directory: trusted.directory, port: 0 });
+  t.after(() => broker.stop());
+  const client = new BrokerClient({ directory: foreign.directory, ports: [broker.bridge.port] });
+  t.after(() => client.stop());
+  await assert.rejects(client.connect(), { code: 'BRIDGE_AUTH_REJECTED' });
+  assert.equal(client.closed, true);
+  client.directory = trusted.directory;
+  await assert.rejects(client.connect(), /завершена/);
 });
 
 test('роль MCP не может зарегистрировать файл, роль plugin не может вызвать broker execute', async t => {

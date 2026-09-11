@@ -4,22 +4,41 @@ import { randomUUID } from 'node:crypto';
 import { errorDetails } from './bridge-errors.mjs';
 import { FigmaBridge } from './bridge.mjs';
 import { installationDirectory, loadInstallation, identityFor } from './installation.mjs';
+import { brokerRevision, runtimeInfo } from './runtime-info.mjs';
 
-export async function startBroker({ directory = installationDirectory(), port = 9233, idleMs = 60000, queueTimeoutMs = 5000 } = {}) {
+export async function startBroker({ directory = installationDirectory(), port = 9233, idleMs = 60000, queueTimeoutMs = 5000,
+  isRuntimeCurrent = () => brokerRevision() === runtimeInfo.brokerRevision } = {}) {
   const installation = await loadInstallation(directory);
   const queues = new Map();
   const sessions = new Set();
   let idleTimer;
+  let restartTimer;
+  let restarting = false;
+  let activeOperations = 0;
+  const uncertainFiles = new Set();
   const bridge = new FigmaBridge({ host: '127.0.0.1', port, portFallback: false, identity: identityFor(installation, 'server'), onMcpConnection });
 
   function scheduleIdle() {
     clearTimeout(idleTimer);
-    if (!sessions.size) idleTimer = setTimeout(() => void stop(), idleMs);
+    if (!sessions.size && !uncertainFiles.size) idleTimer = setTimeout(() => void stop(), idleMs);
     idleTimer?.unref?.();
   }
   function status() {
     const full = bridge.status();
     return { ...full, file: full.files.length === 1 ? full.files[0] : null };
+  }
+  function maintenanceStatus() {
+    const full = status();
+    if (isRuntimeCurrent()) return full;
+    const busy = activeOperations > 0 || queues.size > 0 || uncertainFiles.size > 0;
+    if (!busy && !restarting) {
+      restarting = true;
+      // Let the encrypted status response flush before closing sockets. The
+      // restart flag synchronously prevents any later canvas request entering.
+      restartTimer = setTimeout(() => void stop(), 50);
+    }
+    return { ...full, maintenance: { state: restarting ? 'restarting' : 'deferred',
+      activeOperations, uncertainFiles: [...uncertainFiles] } };
   }
   async function resolveFile(session, requested) {
     await bridge.waitForConnection(10000);
@@ -79,12 +98,26 @@ export async function startBroker({ directory = installationDirectory(), port = 
         session.requests.add(message.id);
         session.pending++;
         void (async () => {
+          let fileOperation = false;
+          let targetFile;
           try {
             let result;
-            if (message.method === 'status') result = status();
+            if (message.method === 'status') result = maintenanceStatus();
+            else if (message.method === 'executionStatus') {
+              const fileKey = message.args?.fileKey;
+              if (typeof fileKey !== 'string' || !status().files.some(file => file.fileKey === fileKey)) throw new Error('Указанный файл не подключён');
+              // Readiness bypasses the canvas queue, including a stuck operation.
+              result = await bridge.executionStatus(fileKey);
+            }
             else if (['execute', 'captureScreenshot'].includes(message.method)) {
+              if (restarting) throw Object.assign(new Error('Broker обновляется; команда не отправлена в Figma.'), {
+                code: 'BRIDGE_RESTARTING', operationStatus: 'not_applied', nextStep: 'Вызовите get_status для восстановления подключения.',
+              });
+              fileOperation = true;
+              activeOperations++;
               const args = message.args || {};
               const fileKey = await resolveFile(session, args.fileKey);
+              targetFile = fileKey;
               if (message.method === 'execute') {
                 if (typeof args.code !== 'string' || args.code.length > 8 * 1024 * 1024) throw new Error('Неверная команда');
                 const timeout = Math.min(60000, Math.max(1000, Number(args.timeout) || 30000));
@@ -94,12 +127,18 @@ export async function startBroker({ directory = installationDirectory(), port = 
                   pageId: args.pageId,
                   operation: args.operation,
                 }));
+                if (args.operation?.mutating === false) uncertainFiles.delete(fileKey);
               } else result = await runForFile(session, fileKey, () => bridge.captureScreenshot(args.nodeId, { scale: args.scale, fileKey }));
             } else throw new Error('Неизвестная операция Bridge');
             if (!session.closed) ws.send(JSON.stringify({ id: message.id, result }));
           } catch (error) {
+            // A failed read/export cannot leave an unconfirmed canvas write.
+            // Preserve any earlier uncertain write until a successful read-back.
+            const mutating = message.method === 'execute' && message.args?.operation?.mutating !== false;
+            if (targetFile && mutating && error.operationStatus === 'unknown') uncertainFiles.add(targetFile);
             if (!session.closed && ws.readyState === 1) ws.send(JSON.stringify({ id: message.id, error: error.message, errorDetails: errorDetails(error) }));
           } finally {
+            if (fileOperation) activeOperations--;
             session.pending--;
             session.requests.delete(message.id);
             release(session);
@@ -114,6 +153,7 @@ export async function startBroker({ directory = installationDirectory(), port = 
   async function stop() {
     if (stopped) return;
     stopped = true;
+    clearTimeout(restartTimer);
     clearTimeout(idleTimer);
     await bridge.stop();
     clearTimeout(idleTimer);

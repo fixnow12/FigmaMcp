@@ -20,7 +20,7 @@ test('полный установленный UI: auto auth → FILE_INFO → к
   // Only the test listener port differs; execute every generated script verbatim.
   html = html.replace('var WS_PORT_RANGE_START = 9233;', `var WS_PORT_RANGE_START = ${broker.bridge.port};`).replace('var WS_PORT_RANGE_END = 9233;', `var WS_PORT_RANGE_END = ${broker.bridge.port};`);
   const timers = new Set(), sockets = [], commands = [], errors = [];
-  let busy = false, responsive = true;
+  let busy = false, responsive = true, executionFailure;
   let clockOffset = 0;
   const context = {
     TextEncoder, TextDecoder, Uint8Array, DataView, AbortSignal,
@@ -41,8 +41,12 @@ test('полный установленный UI: auto auth → FILE_INFO → к
       if (message.type === 'GET_EXECUTION_STATUS' && !responsive) return;
       const response = { requestId: message.requestId, type: `${message.type}_RESULT`, success: true };
       if (message.type === 'GET_FILE_INFO') response.fileInfo = { fileKey: 'ui-file', fileName: 'Runtime test', pluginVersion: '0.3.0' };
-      else if (message.type === 'GET_EXECUTION_STATUS') response.busy = busy;
-      else if (message.type === 'EXECUTE_CODE') { response.result = { marker: 'executed' }; response.fileContext = { fileKey: 'ui-file' }; }
+      else if (message.type === 'GET_EXECUTION_STATUS') Object.assign(response, { busy, pendingExecutions: busy ? 1 : 0,
+        activeOperation: busy ? { name: 'find_assets', mutating: false, elapsedMs: 50000 } : null });
+      else if (message.type === 'EXECUTE_CODE') {
+        if (executionFailure) Object.assign(response, { success: false, error: 'Шрифт недоступен' }, executionFailure);
+        else { response.result = { marker: 'executed' }; response.fileContext = { fileKey: 'ui-file' }; }
+      }
       queueMicrotask(() => context.onmessage({ data: { pluginMessage: response } }));
     } },
   };
@@ -61,6 +65,12 @@ test('полный установленный UI: auto auth → FILE_INFO → к
   assert.equal(commands.filter(type => type === 'EXECUTE_CODE').length, 1);
   assert.match((await client.status()).files[0].pluginBuild, /^[a-f0-9]{16}$/);
   busy = true;
+  const executing = await client.executionStatus('ui-file');
+  assert.equal(executing.responsive, true);
+  assert.equal(executing.busy, true);
+  assert.equal(executing.pendingExecutions, 1);
+  assert.equal(executing.activeOperation.name, 'find_assets');
+  assert.equal(commands.filter(type => type === 'EXECUTE_CODE').length, 1, 'проверка состояния не запускает код и не читает холст');
   await assert.rejects(client.execute('return 2'), error => {
     assert.equal(error.code, 'PLUGIN_BUSY');
     assert.equal(error.operationStatus, 'not_applied');
@@ -72,6 +82,7 @@ test('полный установленный UI: auto auth → FILE_INFO → к
   assert.equal(commands.includes('CAPTURE_SCREENSHOT'), false);
   busy = false;
   responsive = false;
+  assert.equal((await client.executionStatus('ui-file')).responsive, false);
   await assert.rejects(client.execute('return 3'), error => {
     assert.equal(error.code, 'PLUGIN_UNRESPONSIVE');
     assert.equal(error.operationStatus, 'not_applied');
@@ -80,6 +91,7 @@ test('полный установленный UI: auto auth → FILE_INFO → к
   });
   assert.equal(commands.filter(type => type === 'EXECUTE_CODE').length, 1, 'неответивший probe не должен отправлять код в отложенное выполнение');
   responsive = true;
+  assert.equal((await client.executionStatus('ui-file')).busy, false);
   assert.deepEqual((await client.execute('return 4')).result, { marker: 'executed' });
   // Simulate the iframe receiving a WS command after its original deadline.
   clockOffset = 120000;
@@ -90,6 +102,14 @@ test('полный установленный UI: auto auth → FILE_INFO → к
   });
   assert.equal(commands.filter(type => type === 'EXECUTE_CODE').length, 2);
   clockOffset = 0;
+  executionFailure = { code: 'FONT_LOAD_TIMEOUT', operationStatus: 'not_applied',
+    nextStep: 'Проверьте доступность шрифта', fileKey: 'ui-file',
+    blockers: [{ type: 'font', family: 'Factor IO', style: 'Bold' }], rollbackErrors: [] };
+  await assert.rejects(client.execute('preflight'), error => {
+    for (const [key, value] of Object.entries(executionFailure)) assert.deepEqual(error[key], value);
+    return true;
+  });
+  executionFailure = undefined;
   context.__wsDisconnectAll();
   await waitFor(() => !broker.bridge.status().connected);
   assert.equal(context.__wsIsPaused(), true);

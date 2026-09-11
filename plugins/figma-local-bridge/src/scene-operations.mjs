@@ -97,7 +97,7 @@ async function moveNodes(figma, input, access) {
         const fonts = node.fontName === figma.mixed ? node.getRangeAllFontNames(0, node.characters.length) : [node.fontName];
         for (const font of fonts) {
           const key = JSON.stringify(font);
-          if (!loadedFonts.has(key)) { await figma.loadFontAsync(font); loadedFonts.add(key); }
+          if (!loadedFonts.has(key)) { await access.loadFont(font); loadedFonts.add(key); }
           access.check();
         }
       }

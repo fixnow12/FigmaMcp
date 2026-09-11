@@ -1,13 +1,16 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
 import { FigmaBridge } from "./bridge.mjs";
 import { runToolOperation, toolSuccess as ok, toolFailure as fail } from "./tool-results.mjs";
 import {
   cloneNodesInputSchema, cloneNodesSchema, moveNodesInputSchema, moveNodesSchema,
   findAssetsInputSchema, findAssetsSchema, bindVariablesInputSchema, bindVariablesSchema,
+  setTextLinksInputSchema, setTextLinksSchema, setReactionsInputSchema, setReactionsSchema,
 } from "./operation-schemas.mjs";
 import { buildCloneCode, buildMoveCode } from "./scene-operations.mjs";
 import { buildFindAssetsCode } from "./asset-catalog.mjs";
+import { buildSetTextLinksCode, buildSetReactionsCode } from "./interactions.mjs";
 import { buildBindVariablesCode } from "./variable-bindings.mjs";
 import { BrokerClient } from "./broker-client.mjs";
 import { runtimeDiagnostics } from "./runtime-info.mjs";
@@ -36,6 +39,7 @@ const instructions =
   "для итераций — patch_nodes, для чтения выделения — inspect_selection, для экземпляров — use_component. " +
   "Для подключения и списка файлов используйте get_status. Узлы адресуются стабильным key или id. Не перерисовывайте экран ради точечной правки. " +
   "find_assets находит элементы и ресурсы; clone_nodes копирует готовые блоки; move_nodes переносит и переставляет слои; bind_variables привязывает существующие Variables без изменения их значений. " +
+  "set_text_links записывает ссылки в тексте; set_reactions настраивает прототипные переходы; inspect_selection возвращает hyperlinks и reactions. " +
   "Перед патчем неизвестного дизайна вызовите inspect_selection. Передавайте выбранный fileKey из get_status во всех вызовах, особенно при переходе от чтения к render_screen. При неоднозначной цели уточните файл у пользователя. Сервер не принимает произвольный JavaScript.";
 
 const bridge = process.env.FIGMA_WS_PORT !== undefined
@@ -61,13 +65,34 @@ server.registerTool("recreate_screen", {
 
 server.registerTool("get_status", {
   title: "Проверить подключение",
-  description: "Мгновенно возвращает состояние локального Bridge и список подключённых файлов и страниц без чтения холста. Если сопряжение ожидается, показывает код для ввода в Figma.",
-  inputSchema: {},
+  description: "Проверяет соединение, версии и ответ Plugin API без чтения холста. Передайте fileKey из ссылки: execution и diagnostics.ready учитывают именно этот файл. execution показывает responsive, busy и activeOperation (имя, mutating, elapsedMs, timedOut). При PLUGIN_BUSY не повторяйте команды циклом с sleep; блокировка другого файла не блокирует назначение. isActive не является достоверным признаком активной вкладки. В первые пять секунд жизни broker ждёт регистрации целевого файла; без fileKey собирает все файлы. После готового статуса прочитайте назначение через inspect_selection.",
+  inputSchema: { fileKey: z.string().min(1).optional().describe("Ключ целевого файла из ссылки пользователя. Проверить его подключение, даже если другие файлы уже подключены.") },
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-}, async () => {
+}, async ({ fileKey }) => {
   try {
-    const status = await bridge.status();
-    status.diagnostics = runtimeDiagnostics(status);
+    const status = await bridge.status({ fileKey });
+    const versions = runtimeDiagnostics(status, { fileKey });
+    status.execution = await Promise.all((status.files || []).filter(file => !fileKey || file.fileKey === fileKey)
+      .map(async file => {
+        if (file.pluginBuild !== versions.expectedPluginBuild) return { fileKey: file.fileKey, responsive: null, code: 'PLUGIN_OUTDATED' };
+        try { return await bridge.executionStatus(file.fileKey); }
+        catch (error) { return { fileKey: file.fileKey, responsive: false, error: error.message }; }
+      }));
+    status.diagnostics = runtimeDiagnostics(status, { fileKey });
+    if (fileKey) {
+      status.target = { fileKey, connected: Boolean(status.files?.some(file => file.fileKey === fileKey)) };
+      if (!status.target.connected) {
+        const issue = { code: "TARGET_FILE_NOT_CONNECTED", action: "check_target_connection", fileKey,
+          message: "Целевой файл пока не зарегистрирован в этом Bridge. Это не доказывает, что плагин закрыт: проверьте адресное чтение назначения; если оно также недоступно, сопоставьте состояние подключения в целевом плагине." };
+        status.diagnostics.ready = false;
+        status.diagnostics.issues.push(issue);
+        status.diagnostics.warnings.push(issue.message);
+        if (status.diagnostics.state === "READY" || status.diagnostics.state === "FILE_NOT_CONNECTED") {
+          status.diagnostics.state = issue.code;
+          status.diagnostics.nextAction = issue.action;
+        }
+      }
+    }
     if (!status.connected && typeof bridge.getPairingReference === "function") {
       status.pairingReference = bridge.getPairingReference();
     }
@@ -80,7 +105,7 @@ server.registerTool(
   {
     title: "Создать экран",
     description:
-      "Создаёт дизайн с нуля из JSON-спеки. Не переносит оформление прочитанного исходника автоматически. Для вариантов существующего экрана, добавления промо или ошибки используйте recreate_screen с sourceId и changes; для точечных правок — patch_nodes. Повторный вызов с тем же spec.key заменяет предыдущую версию после успешной сборки, сохраняя посторонние элементы секции; PNG возвращается по умолчанию. applied подтверждает запись, а не сходство с исходником.",
+      "Создаёт дизайн с нуля из JSON-спеки. spec.nodes — один плоский массив; дочерние слои ссылаются на parentKey. Внутри слоя нет nodes/children. dryRun:true проверяет свойства, раскладку и загрузку шрифтов без записи и PNG; это не визуальная проверка SVG или результата. Не переносит оформление прочитанного исходника автоматически. Для вариантов существующего экрана, добавления промо или ошибки используйте recreate_screen с sourceId и changes; для точечных правок — patch_nodes. Повторный вызов с тем же spec.key заменяет предыдущую версию после успешной сборки, сохраняя посторонние элементы секции; PNG возвращается по умолчанию. applied подтверждает запись, а не сходство с исходником.",
     inputSchema: renderScreenInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
   },
@@ -94,7 +119,8 @@ server.registerTool(
       };
       return await runToolOperation(bridge, parsed, buildRenderCode(operation), {
         operationName: "render_screen",
-        screenshotRequested: parsed.screenshot !== false,
+        mutating: !parsed.dryRun,
+        screenshotRequested: !parsed.dryRun && parsed.screenshot !== false,
         screenshotNode: (payload) => payload.result?.rootId,
       });
     } catch (error) {
@@ -207,8 +233,8 @@ function registerGeneratedTool(name, config, schema, buildCode, { mutating = tru
       const parsed = schema.parse(input);
       return await runToolOperation(bridge, parsed, buildCode(parsed), {
         operationName: name,
-        mutating,
-        screenshotRequested: parsed.screenshot,
+        mutating: mutating && !parsed.dryRun,
+        screenshotRequested: parsed.dryRun ? false : parsed.screenshot,
         screenshotNode: (payload) => payload.result?.screenshotNodeId,
       });
     } catch (error) {
@@ -223,6 +249,20 @@ registerGeneratedTool("export_assets", {
   inputSchema: exportAssetsInputSchema,
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
 }, exportAssetsSchema, buildExportAssetsCode, { mutating: false });
+
+registerGeneratedTool("set_text_links", {
+  title: "Настроить ссылки в тексте",
+  description: "Записывает или удаляет гиперссылки URL/NODE в TEXT текущей страницы: весь текст или непересекающиеся диапазоны UTF-16 [start,end). target:null снимает ссылку. Проверяет все цели до записи; при ошибке восстанавливает исходные диапазоны. dryRun проверяет без записи. Возвращает прочитанные hyperlinks; клики в прототипе отдельно не проверяет. Оригиналы компонентов требуют подтверждения и allowComponentChanges.",
+  inputSchema: setTextLinksInputSchema,
+  annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+}, setTextLinksSchema, buildSetTextLinksCode);
+
+registerGeneratedTool("set_reactions", {
+  title: "Настроить прототипные переходы",
+  description: "Настраивает ON_CLICK/ON_HOVER/ON_PRESS/ON_DRAG с одним действием: NAVIGATE, OVERLAY, SCROLL_TO, URL, BACK, CLOSE. upsert заменяет указанные типы триггеров, сохраняя остальные; replace заменяет весь список, [] очищает. NAVIGATE/OVERLAY ведёт в другой верхнеуровневый FRAME той же страницы, SCROLL_TO — к блоку того же экрана. transition:null — мгновенно, DISSOLVE/SMART_ANIMATE с duration в секундах. Проверяет пакет, откатывает при ошибке, возвращает прочитанные reactions. dryRun без записи; реальные клики не проверяет.",
+  inputSchema: setReactionsInputSchema,
+  annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+}, setReactionsSchema, buildSetReactionsCode);
 
 registerGeneratedTool("clone_nodes", {
   title: "Скопировать элементы",

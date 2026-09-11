@@ -10,7 +10,7 @@ async function findAssets(figma, input, access) {
     const pages = input.scope === "file" ? figma.root.children.filter((node) => node.type === "PAGE") : [access.page];
     const types = input.kind === "components" ? ["COMPONENT", "COMPONENT_SET"] : input.types;
     for (const page of pages) {
-      await page.loadAsync();
+      await access.read(page.loadAsync(), "страница " + page.id);
       access.check();
       const nodes = types ? page.findAllWithCriteria({ types }) : page.findAll();
       for (const node of nodes) {
@@ -28,9 +28,9 @@ async function findAssets(figma, input, access) {
     }
     if (input.kind === "components") limitations.push("Поиск включает определения компонентов на выбранных страницах, а не полный каталог внешних библиотек. Для известного библиотечного ключа используйте use_component.");
   } else if (input.kind === "styles") {
-    const groups = await Promise.all([
+    const groups = await access.read(Promise.all([
       figma.getLocalPaintStylesAsync(), figma.getLocalTextStylesAsync(), figma.getLocalEffectStylesAsync(), figma.getLocalGridStylesAsync(),
-    ]);
+    ]), "локальные стили");
     access.check();
     items = groups.flat().filter(matches).map((style) => ({
       id: style.id, key: style.key, name: style.name, type: style.type, description: style.description, remote: style.remote,
@@ -39,7 +39,7 @@ async function findAssets(figma, input, access) {
     }));
     limitations.push("Показаны локальные стили файла; внешний каталог стилей Plugin API не предоставляет.");
   } else if (input.kind === "variables") {
-    const [variables, localCollections] = await Promise.all([figma.variables.getLocalVariablesAsync(), figma.variables.getLocalVariableCollectionsAsync()]);
+    const [variables, localCollections] = await access.read(Promise.all([figma.variables.getLocalVariablesAsync(), figma.variables.getLocalVariableCollectionsAsync()]), "локальные переменные и коллекции");
     access.check();
     collections = localCollections.map((collection) => ({ id: collection.id, key: collection.key, name: collection.name, modes: collection.modes, defaultModeId: collection.defaultModeId }));
     items = variables.filter(matches).map((variable) => ({
@@ -48,10 +48,10 @@ async function findAssets(figma, input, access) {
       description: variable.description, remote: variable.remote,
     }));
   } else if (input.kind === "library_collections") {
-    items = (await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync()).filter(matches);
+    items = (await access.read(figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync(), "коллекции подключённых библиотек")).filter(matches);
     access.check();
   } else if (input.kind === "library_variables") {
-    items = (await figma.teamLibrary.getVariablesInLibraryCollectionAsync(input.collectionKey)).filter(matches);
+    items = (await access.read(figma.teamLibrary.getVariablesInLibraryCollectionAsync(input.collectionKey), "переменные библиотеки " + input.collectionKey)).filter(matches);
     access.check();
     limitations.push("Это метаданные библиотечных переменных. bind_variables принимает variableId уже доступной в файле переменной; поиск не импортирует ресурсы.");
   }
@@ -67,4 +67,4 @@ async function findAssets(figma, input, access) {
   };
 }
 
-export const buildFindAssetsCode = (input) => compileOperation(findAssets, input);
+export const buildFindAssetsCode = (input) => compileOperation(findAssets, input, { readOnly: true });

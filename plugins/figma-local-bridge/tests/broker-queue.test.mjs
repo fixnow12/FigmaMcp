@@ -25,7 +25,7 @@ async function fixture(t, options = {}) {
   broker.bridge.status = () => ({ connected: true, files: [{ fileKey: 'a' }, { fileKey: 'b' }] });
   const calls = [];
   broker.bridge.execute = (code, { fileKey }) => new Promise((resolve, reject) => calls.push({ code, fileKey, resolve, reject }));
-  broker.bridge.captureScreenshot = (nodeId, { fileKey }) => new Promise(resolve => calls.push({ nodeId, fileKey, resolve }));
+  broker.bridge.captureScreenshot = (nodeId, { fileKey }) => new Promise((resolve, reject) => calls.push({ nodeId, fileKey, resolve, reject }));
   const clients = await Promise.all([0, 1, 2].map(async () => {
     const client = new BrokerClient({ directory, ports: [broker.bridge.port], autoStart: false });
     t.after(() => client.stop());
@@ -34,6 +34,22 @@ async function fixture(t, options = {}) {
   }));
   return { calls, clients, broker };
 }
+
+for (const kind of ['read', 'screenshot']) test(`ошибка ${kind} не удерживает broker как неизвестную запись`, async t => {
+  let current = true;
+  const { calls, clients: [client] } = await fixture(t, { isRuntimeCurrent: () => current });
+  const request = kind === 'read'
+    ? client.execute('inspect', { fileKey: 'a', operation: { mutating: false } })
+    : client.captureScreenshot('1:2', { fileKey: 'a' });
+  const rejected = assert.rejects(request, /timeout/);
+  await until(() => calls.length === 1);
+  calls[0].reject(Object.assign(new Error('timeout'), { operationStatus: 'unknown' }));
+  await rejected;
+  current = false;
+  const status = await client.call('status');
+  assert.deepEqual(status.maintenance.uncertainFiles, []);
+  assert.equal(status.maintenance.state, 'restarting');
+});
 
 test('операции одного файла идут последовательно; другой файл и статус не блокируются', async t => {
   const { calls, clients: [first, second] } = await fixture(t);
@@ -122,4 +138,89 @@ test('закрытие сессии отменяет её очередь, но �
   assert.equal(calls[1].code, 'next');
   calls[1].resolve('done');
   await next;
+});
+
+test('устаревший broker откладывает обновление до завершения всех операций', async t => {
+  let current = true;
+  const { calls, clients: [client], broker } = await fixture(t, { isRuntimeCurrent: () => current });
+  const active = client.execute('active', { fileKey: 'a' });
+  await until(() => calls.length === 1);
+  current = false;
+  assert.equal((await client.call('status')).maintenance?.state, 'deferred');
+  assert.ok(broker.bridge.port);
+  calls[0].resolve('done');
+  await active;
+  assert.equal((await client.call('status')).maintenance?.state, 'restarting');
+  await assert.rejects(client.execute('too late', { fileKey: 'a' }), error => {
+    assert.equal(error.code, 'BRIDGE_RESTARTING');
+    assert.equal(error.operationStatus, 'not_applied');
+    return true;
+  });
+  await until(() => client.connection === null);
+  assert.equal(calls.length, 1);
+});
+
+test('тот же MCP восстанавливает защищённое соединение после перезапуска broker', async t => {
+  const { clients: [client], broker } = await fixture(t);
+  const port = broker.bridge.port;
+  await broker.stop();
+  await until(() => client.connection === null);
+  const replacement = await startBroker({ directory: client.directory, port });
+  t.after(() => replacement.stop());
+  assert.equal((await client.status()).port, port);
+  assert.equal(client.closed, false);
+});
+
+test('неизвестный результат удерживает обновление до успешного чтения файла', async t => {
+  let current = true;
+  const { calls, clients: [client] } = await fixture(t, { isRuntimeCurrent: () => current });
+  const write = client.execute('write', { fileKey: 'a', operation: { mutating: true } });
+  const rejected = assert.rejects(write, { operationStatus: 'unknown' });
+  await until(() => calls.length === 1);
+  calls[0].reject(Object.assign(new Error('timeout'), { operationStatus: 'unknown' }));
+  await rejected;
+  current = false;
+  const status = await client.status();
+  assert.equal(status.maintenance.state, 'deferred');
+  assert.deepEqual(status.maintenance.uncertainFiles, ['a']);
+  const read = client.execute('inspect', { fileKey: 'a', operation: { mutating: false } });
+  await until(() => calls.length === 2);
+  calls[1].resolve('read-back');
+  await read;
+  assert.equal((await client.call('status')).maintenance.state, 'restarting');
+});
+
+test('idle shutdown не теряет неизвестный результат после закрытия MCP', async t => {
+  const { calls, clients, broker } = await fixture(t, { idleMs: 300 });
+  let stopped = false;
+  broker.onStop = () => { stopped = true; };
+  const write = clients[0].execute('write', { fileKey: 'a' });
+  const rejected = assert.rejects(write, { operationStatus: 'unknown' });
+  await until(() => calls.length === 1);
+  calls[0].reject(Object.assign(new Error('timeout'), { operationStatus: 'unknown' }));
+  await rejected;
+  await Promise.all(clients.map(client => client.stop()));
+  await pause(450);
+  assert.equal(stopped, false);
+});
+
+test('один status автоматически восстанавливается через обновление broker', async t => {
+  let current = true;
+  const { clients: [client], broker } = await fixture(t, { isRuntimeCurrent: () => current });
+  const port = broker.bridge.port;
+  let resolveReplacement;
+  const replacementReady = new Promise(resolve => { resolveReplacement = resolve; });
+  broker.onStop = async () => {
+    const replacement = await startBroker({ directory: client.directory, port });
+    t.after(() => replacement.stop());
+    resolveReplacement();
+  };
+  // Production discover starts a child broker; this fixture supplies the new
+  // real authenticated broker in-process on the same ephemeral port instead.
+  const discover = client.discover.bind(client);
+  client.discover = async () => { await replacementReady; return discover(); };
+  current = false;
+  const status = await client.status();
+  assert.equal(status.port, port);
+  assert.equal(status.maintenance, undefined);
 });
