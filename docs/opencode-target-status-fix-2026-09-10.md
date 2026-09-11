@@ -4,7 +4,7 @@
 
 ## Причина
 
-OpenCode вызвал только `figma-local_get_status({})`. Broker стартовал в 16:26:43.275 UTC; IO Material зарегистрировался в 16:26:43.691; ответ завершился в 16:26:43.697. Общий статус закончил стартовое ожидание после первого файла. Агент принял неполный стартовый список за доказательство отсутствия Untitled и не вызвал адресное чтение `Rgjwqbs2HdgNjoGG0xCOZL / 0:1`.
+OpenCode вызвал только `figma-local_get_status({})`. Broker стартовал в 16:26:43.275 UTC; IO Material зарегистрировался в 16:26:43.691; ответ завершился в 16:26:43.697. Общий статус закончил стартовое ожидание после первого файла. Агент принял неполный стартовый список за доказательство отсутствия Untitled и не вызвал адресное чтение `<FILE_KEY> / 0:1`.
 
 Предыдущая правка ожидала конкретный файл только внутри операций `runInFile`. Публичный `get_status` не принимал fileKey и возвращался при любом подключённом файле. Инструкции не требовали адресного чтения перед просьбой запустить уже открытый плагин.
 
@@ -20,8 +20,8 @@ OpenCode вызвал только `figma-local_get_status({})`. Broker стар
 
 Живая проверка проведена через сам OpenCode, проект GuideConstructor, GLM-5.3-Flash, сессия `ses_f73cf09e4ffeLysZr5s0XvXFsc`:
 
-- `figma-local_get_status({fileKey:"Rgjwqbs2HdgNjoGG0xCOZL"})`: target.connected true, diagnostics READY, все current true, issues пусто.
-- `figma-local_inspect_selection({fileKey:"Rgjwqbs2HdgNjoGG0xCOZL",nodeId:"0:1",depth:1,maxNodes:10})`: operationStatus read, missing пусто, coverage complete, Page 1 без детей.
+- `figma-local_get_status({fileKey:"<FILE_KEY>"})`: target.connected true, diagnostics READY, все current true, issues пусто.
+- `figma-local_inspect_selection({fileKey:"<FILE_KEY>",nodeId:"0:1",depth:1,maxNodes:10})`: operationStatus read, missing пусто, coverage complete, Page 1 без детей.
 
 В этой проверке вкладки Figma не переключались и плагин не перезапускался. OpenCode перезапущен для загрузки нового MCP-каталога; успешный результат открыт в приложении. Проверка не создавала слайды и не доказывает визуальную готовность гайда.
 

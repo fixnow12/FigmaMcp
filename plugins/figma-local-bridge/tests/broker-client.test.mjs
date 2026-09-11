@@ -1,7 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BrokerClient } from '../src/broker-client.mjs';
+import { FigmaBridge } from '../src/bridge.mjs';
 import { toolFailure } from '../src/tool-results.mjs';
+
+test('статус отсчитывает окно подключения от запуска конкретного Bridge', async t => {
+  await new Promise(resolve => setTimeout(resolve, 20));
+  const notBefore = Date.now();
+  const bridge = new FigmaBridge({ host: '127.0.0.1', port: 0, authToken: 'test-token-for-local-status-only' });
+  await bridge.start();
+  t.after(() => bridge.stop());
+  assert.ok(Date.parse(bridge.status().runtime.startedAt) >= notBefore);
+});
 
 // Model the broker being available before the plugin's discovery/authentication
 // finishes, without opening Figma or waiting five real seconds in every test.
