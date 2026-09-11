@@ -15,12 +15,16 @@ export async function startBroker({ directory = installationDirectory(), port = 
   let restartTimer;
   let restarting = false;
   let activeOperations = 0;
+  let hasAcceptedSession = false;
   const uncertainFiles = new Set();
   const bridge = new FigmaBridge({ host: '127.0.0.1', port, portFallback: false, identity: identityFor(installation, 'server'), onMcpConnection });
 
   function scheduleIdle() {
     clearTimeout(idleTimer);
-    if (!sessions.size && !uncertainFiles.size) idleTimer = setTimeout(() => void stop(), idleMs);
+    // A newly spawned client may need the full six-second discovery window on
+    // slower hosts. After the first session, use the configured idle timeout.
+    const delay = hasAcceptedSession ? idleMs : Math.max(idleMs, 6000);
+    if (!sessions.size && !uncertainFiles.size) idleTimer = setTimeout(() => void stop(), delay);
     idleTimer?.unref?.();
   }
   function status() {
@@ -90,6 +94,7 @@ export async function startBroker({ directory = installationDirectory(), port = 
   }
   function onMcpConnection(ws) {
     const session = { id: randomUUID(), closed: false, pending: 0, requests: new Set() };
+    hasAcceptedSession = true;
     sessions.add(session);
     scheduleIdle();
     return {

@@ -63,6 +63,17 @@ test('первый статус по защищённому соединению
   assert.equal(status.files[0].fileKey, 'late-guide');
 });
 
+test('начальный idle shutdown не обрывает окно подключения MCP', async t => {
+  const { directory } = await fixture(t);
+  const broker = await startBroker({ directory, port: 0, idleMs: 25 });
+  t.after(() => broker.stop());
+  await pause(75);
+  const client = new BrokerClient({ directory, ports: [broker.bridge.port], autoStart: false });
+  t.after(() => client.stop());
+  await client.connect();
+  assert.equal(client.connection.ws.readyState, 1);
+});
+
 test('единый broker: автосопряжение, общий доступ без захвата файлов, явный выбор и переподключение плагина', async t => {
   const { directory, installation } = await fixture(t);
   const broker = await startBroker({ directory, port: 0 });

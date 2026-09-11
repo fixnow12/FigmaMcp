@@ -498,8 +498,9 @@ export class FigmaBridge {
   }
 
   status() {
+    const startedAt = this.wsServer?.startedAt ?? Date.parse(runtimeInfo.startedAt);
     return {
-      runtime: runtimeInfo,
+      runtime: { ...runtimeInfo, startedAt: new Date(startedAt).toISOString() },
       version: SERVER_VERSION,
       host: this.host,
       port: this.port,
