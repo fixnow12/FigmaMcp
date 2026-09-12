@@ -11,6 +11,7 @@ export function createFigmaMock() {
   const styles = [];
   const libraryCollections = [];
   const libraryVariables = new Map();
+  let thumbnail = null;
   const copyValue = (value) => value === undefined || typeof value === "symbol" ? value : JSON.parse(JSON.stringify(value));
   let counter = 0;
   let rejectWrite = () => false;
@@ -115,6 +116,12 @@ export function createFigmaMock() {
   page = make("PAGE", { name: "Страница" }, null);
   const figma = {
     currentPage: page, mixed, root: { name: "Тестовый файл", children: [page] },
+    async getFileThumbnailNodeAsync() { return thumbnail; },
+    async setFileThumbnailNodeAsync(node) { thumbnail = node; },
+    async setCurrentPageAsync(nextPage) {
+      if (nextPage.type !== "PAGE") throw new Error("Ожидается PAGE");
+      this.currentPage = nextPage;
+    },
     getNodeByIdAsync: async (id) => nodes.get(id) || null,
     loadFontAsync: async (font) => {
       if (font.family === "Missing") throw new Error("Шрифт недоступен");

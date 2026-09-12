@@ -7,11 +7,16 @@ import {
   cloneNodesInputSchema, cloneNodesSchema, moveNodesInputSchema, moveNodesSchema,
   findAssetsInputSchema, findAssetsSchema, bindVariablesInputSchema, bindVariablesSchema,
   setTextLinksInputSchema, setTextLinksSchema, setReactionsInputSchema, setReactionsSchema,
+  activatePageInputSchema, activatePageSchema,
+  getFileMetadataInputSchema, getFileMetadataSchema,
+  setFileMetadataInputSchema, setFileMetadataSchema,
 } from "./operation-schemas.mjs";
 import { buildCloneCode, buildMoveCode } from "./scene-operations.mjs";
 import { buildFindAssetsCode } from "./asset-catalog.mjs";
 import { buildSetTextLinksCode, buildSetReactionsCode } from "./interactions.mjs";
 import { buildBindVariablesCode } from "./variable-bindings.mjs";
+import { buildActivatePageCode, buildGetFileMetadataCode, buildSetFileMetadataCode } from "./file-context.mjs";
+import { captureLibraryTemplateInputSchema, captureLibraryTemplateSchema, assembleLibraryTemplateInputSchema, assembleLibraryTemplateSchema, buildCaptureLibraryTemplateCode, buildAssembleLibraryTemplateCode } from './library-template.mjs';
 import { BrokerClient } from "./broker-client.mjs";
 import { runtimeDiagnostics } from "./runtime-info.mjs";
 import { exportAssetsInputSchema, exportAssetsSchema, buildExportAssetsCode } from "./export-assets.mjs";
@@ -40,6 +45,7 @@ const instructions =
   "Для подключения и списка файлов используйте get_status. Узлы адресуются стабильным key или id. Не перерисовывайте экран ради точечной правки. " +
   "find_assets находит элементы и ресурсы; clone_nodes копирует готовые блоки; move_nodes переносит и переставляет слои; bind_variables привязывает существующие Variables без изменения их значений. " +
   "set_text_links записывает ссылки в тексте; set_reactions настраивает прототипные переходы; inspect_selection возвращает hyperlinks и reactions. " +
+  "activate_page переключает текущую страницу по её точному PAGE ID. get_file_metadata читает имя файла, thumbnail и полный список страниц; set_file_metadata задаёт thumbnail и может проверить уже установленное имя, но не переименовывает файл. " +
   "Перед патчем неизвестного дизайна вызовите inspect_selection. Передавайте выбранный fileKey из get_status во всех вызовах, особенно при переходе от чтения к render_screen. При неоднозначной цели уточните файл у пользователя. Сервер не принимает произвольный JavaScript.";
 
 const bridge = process.env.FIGMA_WS_PORT !== undefined
@@ -96,7 +102,7 @@ server.registerTool("get_status", {
     if (!status.connected && typeof bridge.getPairingReference === "function") {
       status.pairingReference = bridge.getPairingReference();
     }
-    return ok(status);
+    return ok({ ...status, operationStatus: "read" });
   } catch (error) { return fail(error); }
 });
 
@@ -134,7 +140,7 @@ server.registerTool(
   {
     title: "Изменить узлы",
     description:
-      "Проверяет цели, свойства и шрифты всего пакета до записи. Применяет изменения по key или id, включая типографику, textRuns, стили и effects. При сбое восстанавливает свойства и сообщает результат отката; append не должен автоматически повторяться.",
+      "Проверяет цели, свойства и шрифты всего пакета до записи. Применяет изменения по key или id, включая типографику, textRuns, стили и effects. Известные правки одного файла с общей целью и общим откатом передавайте одним массивом patches; если следующая правка зависит от чтения результата предыдущей, выполняйте их отдельно. Для итоговой проверки свойств и PNG используйте один inspect_selection с detail=full и screenshot=true после пакета. Если отдельное чтение не требуется, передайте screenshotKey корневого экрана: ранее снятый PNG не проверяет append/set. При сбое восстанавливает свойства и сообщает результат отката; append не должен автоматически повторяться.",
     inputSchema: patchNodesInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   },
@@ -233,7 +239,7 @@ function registerGeneratedTool(name, config, schema, buildCode, { mutating = tru
       const parsed = schema.parse(input);
       return await runToolOperation(bridge, parsed, buildCode(parsed), {
         operationName: name,
-        mutating: mutating && !parsed.dryRun,
+        mutating: (typeof mutating === 'function' ? mutating(parsed) : mutating) && !parsed.dryRun,
         screenshotRequested: parsed.dryRun ? false : parsed.screenshot,
         screenshotNode: (payload) => payload.result?.screenshotNodeId,
       });
@@ -242,6 +248,41 @@ function registerGeneratedTool(name, config, schema, buildCode, { mutating = tru
     }
   });
 }
+
+registerGeneratedTool('capture_library_template', {
+  title: 'Запомнить библиотечный шаблон',
+  description: 'Читает только явно указанные страницы текущего исходного файла и возвращает переносимый snapshot v2: полное дерево включая скрытые экземпляры, опубликованные ключи ресурсов, точные переопределения. Не меняет холст.',
+  inputSchema: captureLibraryTemplateInputSchema,
+  annotations: {readOnlyHint:true,destructiveHint:false,idempotentHint:true},
+}, captureLibraryTemplateSchema, buildCaptureLibraryTemplateCode, {mutating:false});
+
+registerGeneratedTool('assemble_library_template', {
+  title: 'Собрать или проверить библиотечный шаблон',
+  description: 'apply собирает локальный snapshot v2 в пустом назначении через опубликованные библиотеки без обращения к исходному файлу. verify только читает управляемую структуру и реальные ключи экземпляров. Повторный apply сохраняет Jira-текст; при unknown/partial сначала выполнить verify, не повторять запись автоматически.',
+  inputSchema: assembleLibraryTemplateInputSchema,
+  annotations: {readOnlyHint:false,destructiveHint:false,idempotentHint:true},
+}, assembleLibraryTemplateSchema, buildAssembleLibraryTemplateCode, {mutating:input=>input.mode==='apply'});
+
+registerGeneratedTool("activate_page", {
+  title: "Выбрать страницу",
+  description: "Переключает текущую страницу по точному PAGE ID и подтверждает результат. Содержимое документа не меняет.",
+  inputSchema: activatePageInputSchema,
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+}, activatePageSchema, buildActivatePageCode);
+
+registerGeneratedTool("get_file_metadata", {
+  title: "Прочитать метаданные файла",
+  description: "Возвращает текущее имя файла, ID узла thumbnail и упорядоченный список всех PAGE с точными id и name. Файл не меняет.",
+  inputSchema: getFileMetadataInputSchema,
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+}, getFileMetadataSchema, buildGetFileMetadataCode, { mutating: false });
+
+registerGeneratedTool("set_file_metadata", {
+  title: "Изменить метаданные файла",
+  description: "Задаёт thumbnail по ID и/или проверяет уже установленное имя. Изменение имени через Plugin API не поддержано: несовпадающий name даёт FILE_RENAME_UNSUPPORTED/not_applied до записи thumbnail. Читает итог и безопасно откатывает только свой thumbnail при ошибке.",
+  inputSchema: setFileMetadataInputSchema,
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+}, setFileMetadataSchema, buildSetFileMetadataCode);
 
 registerGeneratedTool("export_assets", {
   title: "Экспортировать иконки и изображения",
@@ -298,6 +339,12 @@ async function shutdown() {
   await server.close().catch(() => {});
   await bridge.stop().catch(() => {});
 }
+
+// StdioClientTransport closes stdin first. The SDK server transport does not
+// handle EOF, so an open Bridge socket otherwise keeps this process alive
+// until the client's two-second SIGTERM fallback. Close only this MCP session;
+// let stdout drain and the event loop finish without forcing process.exit().
+process.stdin.once("end", () => { void shutdown(); });
 
 process.once("SIGINT", async () => {
   await shutdown();

@@ -1,0 +1,91 @@
+{
+  "fileKey": "ZXbOEyW305bEb3gohxoXr1",
+  "rootId": "1:3",
+  "url": "https://www.figma.com/design/ZXbOEyW305bEb3gohxoXr1/Untitled?node-id=1-3",
+  "preparationStartedAt": "2026-09-12T17:57:55Z",
+  "readbackCompletedAt": "2026-09-12T17:59:55Z",
+  "preparationThroughReadbackSeconds": 120,
+  "scope": "First recorded preparation timestamp through completed read-back; excludes final artifact saving and response. Not a before/after benchmark.",
+  "callRoundtripMs": {
+    "dryRun": 3579,
+    "create": 4297,
+    "readback": 153
+  },
+  "operationTimings": {
+    "dryRun": {
+      "version": 1,
+      "scope": "bridge_operation",
+      "operation": "render_screen",
+      "totalMs": 91.051,
+      "stages": [
+        {
+          "name": "resolveTarget",
+          "durationMs": 4.323,
+          "status": "ok"
+        },
+        {
+          "name": "execute",
+          "durationMs": 86.704,
+          "status": "ok"
+        }
+      ]
+    },
+    "create": {
+      "version": 1,
+      "scope": "bridge_operation",
+      "operation": "render_screen",
+      "totalMs": 532.288,
+      "stages": [
+        {
+          "name": "resolveTarget",
+          "durationMs": 1.779,
+          "status": "ok"
+        },
+        {
+          "name": "execute",
+          "durationMs": 412.077,
+          "status": "ok"
+        },
+        {
+          "name": "screenshot",
+          "durationMs": 118.323,
+          "status": "ok"
+        }
+      ]
+    },
+    "readback": {
+      "version": 1,
+      "scope": "bridge_operation",
+      "operation": "inspect_selection",
+      "totalMs": 138.915,
+      "stages": [
+        {
+          "name": "resolveTarget",
+          "durationMs": 2.553,
+          "status": "ok"
+        },
+        {
+          "name": "execute",
+          "durationMs": 136.337,
+          "status": "ok"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "complete": true,
+    "nodes": 26,
+    "specNodes": 22,
+    "propertyDifferences": [],
+    "visualChecked": true,
+    "sourceFidelity": "not-applicable-new-design",
+    "actualClicks": "not-tested"
+  },
+  "fullTurnTiming": {
+    "start": "2026-09-12T17:57:47.344Z",
+    "end": "2026-09-12T18:00:38.053Z",
+    "seconds": 170.709,
+    "visibleToolWaitSeconds": 9.037,
+    "scope": "Elapsed user turn through final response. Visible tool waits include wrappers and delivery. Outside-tool time is not isolated model inference. One post-change sample; no matched baseline."
+  }
+}

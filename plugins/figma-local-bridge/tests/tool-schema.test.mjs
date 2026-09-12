@@ -35,8 +35,23 @@ test("MCP публикует типизированные схемы без unkn
     for (const tool of tools) checkArrays(tool.inputSchema, tool.name);
     assert.deepEqual(
       tools.map((tool) => tool.name).sort(),
-      ["bind_variables", "clone_nodes", "export_assets", "find_assets", "get_status", "inspect_selection", "move_nodes", "patch_nodes", "recreate_screen", "render_screen", "set_reactions", "set_text_links", "use_component"],
+      ["activate_page", "assemble_library_template", "bind_variables", "capture_library_template", "clone_nodes", "export_assets", "find_assets", "get_file_metadata", "get_status", "inspect_selection", "move_nodes", "patch_nodes", "recreate_screen", "render_screen", "set_file_metadata", "set_reactions", "set_text_links", "use_component"],
     );
+
+    const activate = tools.find((tool) => tool.name === "activate_page");
+    const capture = tools.find(tool => tool.name === 'capture_library_template');
+    assert.equal(capture.annotations.readOnlyHint, true);
+    assert.equal(capture.inputSchema.properties.pageIds.type, 'array');
+    const assemble = tools.find(tool => tool.name === 'assemble_library_template');
+    assert.deepEqual(assemble.inputSchema.properties.mode.enum, ['apply', 'verify']);
+    assert.equal(assemble.inputSchema.properties.snapshot.properties.nodes.maxItems, 1000);
+    assert.equal(activate.inputSchema.properties.pageId.type, "string");
+    assert.equal(activate.annotations.idempotentHint, true);
+    const getMetadata = tools.find((tool) => tool.name === "get_file_metadata");
+    assert.equal(getMetadata.annotations.readOnlyHint, true);
+    const setMetadata = tools.find((tool) => tool.name === "set_file_metadata");
+    assert.equal(setMetadata.inputSchema.properties.thumbnailNodeId.type, "string");
+    assert.equal(setMetadata.annotations.idempotentHint, true);
 
     const render = tools.find((tool) => tool.name === "render_screen");
     const recreate = tools.find((tool) => tool.name === "recreate_screen");
@@ -52,6 +67,7 @@ test("MCP публикует типизированные схемы без unkn
     const statusTool = tools.find(tool => tool.name === "get_status");
     assert.equal(statusTool.inputSchema.properties.fileKey?.type, "string");
     const status = await client.callTool({ name: "get_status", arguments: { fileKey: "missing-file" } });
+    assert.equal(status.structuredContent.operationStatus, "read", "успешный статус неподключённой цели доказывает чтение");
     assert.deepEqual(status.structuredContent.target, { fileKey: "missing-file", connected: false });
     assert.equal(status.structuredContent.diagnostics.ready, false);
     assert.equal(status.isError, undefined);
@@ -118,6 +134,9 @@ test("MCP → WebSocket → сгенерированный патч: ошибк�
   const client = new Client({ name: "operation-test", version: "0.1.0" });
   const mock = createFigmaMock();
   const text = mock.key(mock.make("TEXT"), "title");
+  const otherPage = mock.make("PAGE", { name: "Другая страница" }, null);
+  mock.figma.root.children.push(otherPage);
+  const cover = mock.make("FRAME", { name: "Обложка" }, otherPage);
   let socket;
   const operations = [];
   try {
@@ -141,6 +160,9 @@ test("MCP → WebSocket → сгенерированный патч: ошибк�
           try {
             const result = await executeGenerated(mock.figma, message.params.code);
             socket.send(JSON.stringify({ id: message.id, result: { success: true, result } }));
+            if (message.params.operation?.name === "activate_page") {
+              socket.send(JSON.stringify({ type: "PAGE_CHANGE", data: { pageId: mock.figma.currentPage.id, pageName: mock.figma.currentPage.name } }));
+            }
           } catch (error) {
             socket.send(JSON.stringify({ id: message.id, result: { success: false, error: error.message, operationStatus: error.operationStatus } }));
           }
@@ -151,11 +173,13 @@ test("MCP → WebSocket → сгенерированный патч: ошибк�
     });
     await registered;
     const missingTarget = await client.callTool({ name: "get_status", arguments: { fileKey: "missing-file" } });
+    assert.equal(missingTarget.structuredContent.operationStatus, "read", "успешный статус отсутствующей цели доказывает чтение");
     assert.equal(missingTarget.structuredContent.connected, true);
     assert.deepEqual(missingTarget.structuredContent.target, { fileKey: "missing-file", connected: false });
     assert.equal(missingTarget.structuredContent.diagnostics.ready, false);
     assert.ok(missingTarget.structuredContent.diagnostics.issues.some(issue => issue.code === "TARGET_FILE_NOT_CONNECTED"));
     const presentTarget = await client.callTool({ name: "get_status", arguments: { fileKey: "test-file" } });
+    assert.equal(presentTarget.structuredContent.operationStatus, "read", "успешный статус подключённой цели доказывает чтение");
     assert.deepEqual(presentTarget.structuredContent.target, { fileKey: "test-file", connected: true });
     assert.equal(operations.length, 0, "проверка статуса не посылает команды на холст");
     const response = await client.callTool({ name: "patch_nodes", arguments: {
@@ -215,6 +239,39 @@ test("MCP → WebSocket → сгенерированный патч: ошибк�
     assert.equal(preflight.structuredContent.screenshot, undefined);
     assert.equal(mock.nodes.size, countBeforePreflight);
     assert.equal(operations.at(-1).mutating, false);
+    const activated = await client.callTool({ name: "activate_page", arguments: { fileKey: "test-file", pageId: otherPage.id } });
+    assert.equal(activated.isError, undefined);
+    assert.equal(mock.figma.currentPage.id, otherPage.id);
+    Object.defineProperty(mock.figma.root, 'name', { get: () => 'Контекст файла', set: () => { throw new Error('DocumentNode.name is read-only'); } });
+    const metadataSet = await client.callTool({ name: "set_file_metadata", arguments: { fileKey: "test-file", name: "Контекст файла", thumbnailNodeId: cover.id } });
+    assert.equal(metadataSet.isError, undefined);
+    const metadata = await client.callTool({ name: "get_file_metadata", arguments: { fileKey: "test-file" } });
+    assert.deepEqual(metadata.structuredContent.result, {
+      name: "Контекст файла",
+      thumbnailNodeId: cover.id,
+      pages: [
+        { id: mock.page.id, name: "Страница" },
+        { id: otherPage.id, name: "Другая страница" },
+      ],
+    });
+    assert.deepEqual(
+      operations.slice(-3).map((operation) => [operation.name, operation.mutating]),
+      [["activate_page", true], ["set_file_metadata", true], ["get_file_metadata", false]],
+    );
+    mock.figma.fileKey = 'test-file';
+    mock.figma.root.getPluginData = () => '';
+    const writesBeforeCapture = mock.writes.length;
+    const captured = await client.callTool({name:'capture_library_template',arguments:{fileKey:'test-file',pageIds:[otherPage.id]}});
+    assert.equal(captured.isError,undefined);
+    assert.equal(captured.structuredContent.operationStatus,'read');
+    const snapshot = captured.structuredContent.result.snapshot;
+    snapshot.sourceFileKey = 'different-source';
+    const verified = await client.callTool({name:'assemble_library_template',arguments:{fileKey:'test-file',snapshot,mode:'verify'}});
+    assert.equal(verified.isError,true);
+    assert.match(verified.structuredContent.error,/TEMPLATE_NOT_MANAGED/);
+    assert.equal(verified.structuredContent.operationStatus,'not_applied');
+    assert.equal(mock.writes.length,writesBeforeCapture);
+    assert.deepEqual(operations.slice(-2).map(op=>[op.name,op.mutating]),[['capture_library_template',false],['assemble_library_template',false]]);
   } finally {
     socket?.terminate();
     await client.close();

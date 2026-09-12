@@ -1,6 +1,8 @@
 import { errorDetails } from './bridge-errors.mjs';
+import { createOperationTimings } from './operation-timings.mjs';
 
-export function toolSuccess(payload, image) {
+export function toolSuccess(payload, image, timing) {
+  if (timing) payload.timings = timing.snapshot();
   return {
     content: [
       { type: "text", text: JSON.stringify(payload) },
@@ -28,11 +30,12 @@ function validationMessage(issues) {
   return `Ошибка параметров:\n${lines.join("\n")}`;
 }
 
-export function toolFailure(error) {
+export function toolFailure(error, timing) {
   const validation = error?.name === "ZodError" && Array.isArray(error.issues);
   const payload = {
     error: validation ? validationMessage(error.issues) : error instanceof Error ? error.message : String(error),
     ...errorDetails(error),
+    ...(timing ? { timings: timing.snapshot() } : {}),
   };
   return { isError: true, content: [{ type: "text", text: validation ? payload.error : JSON.stringify(payload) }], structuredContent: payload };
 }
@@ -41,28 +44,35 @@ export function toolFailure(error) {
 export async function runToolOperation(bridge, input, code, {
   mutating = true, timeout, screenshotRequested = false, screenshotNode, extendPayload, operationName,
 } = {}) {
+  const timing = createOperationTimings(operationName || 'operation');
+  const targetResolved = timing.start('resolveTarget');
   try {
-    return await bridge.runInFile(input.fileKey, async (target) => {
-      const payload = await bridge.execute(code, { ...target, timeout, operation: { name: operationName, mutating } });
+    const response = await bridge.runInFile(input.fileKey, async (target) => {
+      targetResolved();
+      const payload = await timing.measure('execute', () => bridge.execute(code, { ...target, timeout, operation: { name: operationName, mutating } }));
       payload.operationStatus = mutating ? "applied" : "read";
       if (extendPayload) extendPayload(payload);
-      if (!screenshotRequested) return toolSuccess(payload);
+      if (!screenshotRequested) return { payload };
       try {
-        const nodeId = screenshotNode(payload);
-        if (!nodeId) throw new Error("Узел для снимка не найден");
-        const image = await bridge.captureScreenshot(nodeId, { ...target, scale: input.screenshotScale ?? 1 });
+        const image = await timing.measure('screenshot', () => {
+          const nodeId = screenshotNode(payload);
+          if (!nodeId) throw new Error("Узел для снимка не найден");
+          return bridge.captureScreenshot(nodeId, { ...target, scale: input.screenshotScale ?? 1 });
+        });
         const { base64: _base64, ...metadata } = image;
         payload.screenshot = { status: "captured", ...metadata };
-        return toolSuccess(payload, image);
+        return { payload, image };
       } catch (error) {
         payload.screenshot = { status: "failed", error: error.message };
         payload.warnings = [mutating
           ? "Изменения выполнены, но снимок не получен. Не повторяйте запись: запросите снимок отдельно."
           : "Чтение выполнено, но снимок не получен."];
-        return toolSuccess(payload);
+        return { payload };
       }
     }, { requireExplicitFile: mutating });
+    return toolSuccess(response.payload, response.image, timing);
   } catch (error) {
-    return toolFailure(error);
+    targetResolved('error');
+    return toolFailure(error, timing);
   }
 }

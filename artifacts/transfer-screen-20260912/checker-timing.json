@@ -1,0 +1,12 @@
+{
+  "scope": "Cold CLI start, JSON file read, offline comparison and report serialization. Excludes MCP, PNG, model time and visual review.",
+  "samplesMs": [
+    71.732,
+    71.264,
+    66.744,
+    68.055,
+    68.075
+  ],
+  "medianMs": 68.075,
+  "checkedFields": 242
+}

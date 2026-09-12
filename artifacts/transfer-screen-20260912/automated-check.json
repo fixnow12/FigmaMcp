@@ -1,0 +1,1250 @@
+{
+  "fileKey": "ZXbOEyW305bEb3gohxoXr1",
+  "rootId": "1:3",
+  "snapshotOnly": true,
+  "scope": "Explicit identity, hierarchy, text, font and directly comparable geometry fields",
+  "automated": {
+    "status": "matched",
+    "checked": [
+      {
+        "key": "transfer-screen-20260912",
+        "field": "type"
+      },
+      {
+        "key": "transfer-screen-20260912",
+        "field": "name"
+      },
+      {
+        "key": "transfer-screen-20260912",
+        "field": "width"
+      },
+      {
+        "key": "transfer-screen-20260912",
+        "field": "height"
+      },
+      {
+        "key": "transfer-time",
+        "field": "type"
+      },
+      {
+        "key": "transfer-time",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-time",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-time",
+        "field": "name"
+      },
+      {
+        "key": "transfer-time",
+        "field": "content"
+      },
+      {
+        "key": "transfer-time",
+        "field": "fontFamily"
+      },
+      {
+        "key": "transfer-time",
+        "field": "fontSize"
+      },
+      {
+        "key": "transfer-time",
+        "field": "textAutoResize"
+      },
+      {
+        "key": "transfer-time",
+        "field": "fontStyle"
+      },
+      {
+        "key": "transfer-time",
+        "field": "x"
+      },
+      {
+        "key": "transfer-time",
+        "field": "y"
+      },
+      {
+        "key": "transfer-time",
+        "field": "width"
+      },
+      {
+        "key": "transfer-time",
+        "field": "height"
+      },
+      {
+        "key": "transfer-back",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-back",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-back",
+        "field": "name"
+      },
+      {
+        "key": "transfer-back",
+        "field": "x"
+      },
+      {
+        "key": "transfer-back",
+        "field": "y"
+      },
+      {
+        "key": "transfer-back",
+        "field": "width"
+      },
+      {
+        "key": "transfer-back",
+        "field": "height"
+      },
+      {
+        "key": "transfer-demo",
+        "field": "type"
+      },
+      {
+        "key": "transfer-demo",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-demo",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-demo",
+        "field": "name"
+      },
+      {
+        "key": "transfer-demo",
+        "field": "x"
+      },
+      {
+        "key": "transfer-demo",
+        "field": "y"
+      },
+      {
+        "key": "transfer-demo",
+        "field": "width"
+      },
+      {
+        "key": "transfer-demo",
+        "field": "height"
+      },
+      {
+        "key": "transfer-demo-text",
+        "field": "type"
+      },
+      {
+        "key": "transfer-demo-text",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-demo-text",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-demo-text",
+        "field": "name"
+      },
+      {
+        "key": "transfer-demo-text",
+        "field": "content"
+      },
+      {
+        "key": "transfer-demo-text",
+        "field": "fontFamily"
+      },
+      {
+        "key": "transfer-demo-text",
+        "field": "fontSize"
+      },
+      {
+        "key": "transfer-demo-text",
+        "field": "textAutoResize"
+      },
+      {
+        "key": "transfer-demo-text",
+        "field": "fontStyle"
+      },
+      {
+        "key": "transfer-demo-text",
+        "field": "x"
+      },
+      {
+        "key": "transfer-demo-text",
+        "field": "y"
+      },
+      {
+        "key": "transfer-demo-text",
+        "field": "width"
+      },
+      {
+        "key": "transfer-demo-text",
+        "field": "height"
+      },
+      {
+        "key": "transfer-heading",
+        "field": "type"
+      },
+      {
+        "key": "transfer-heading",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-heading",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-heading",
+        "field": "name"
+      },
+      {
+        "key": "transfer-heading",
+        "field": "content"
+      },
+      {
+        "key": "transfer-heading",
+        "field": "fontFamily"
+      },
+      {
+        "key": "transfer-heading",
+        "field": "fontSize"
+      },
+      {
+        "key": "transfer-heading",
+        "field": "textAutoResize"
+      },
+      {
+        "key": "transfer-heading",
+        "field": "fontStyle"
+      },
+      {
+        "key": "transfer-heading",
+        "field": "x"
+      },
+      {
+        "key": "transfer-heading",
+        "field": "y"
+      },
+      {
+        "key": "transfer-heading",
+        "field": "width"
+      },
+      {
+        "key": "transfer-heading",
+        "field": "height"
+      },
+      {
+        "key": "transfer-subheading",
+        "field": "type"
+      },
+      {
+        "key": "transfer-subheading",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-subheading",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-subheading",
+        "field": "name"
+      },
+      {
+        "key": "transfer-subheading",
+        "field": "content"
+      },
+      {
+        "key": "transfer-subheading",
+        "field": "fontFamily"
+      },
+      {
+        "key": "transfer-subheading",
+        "field": "fontSize"
+      },
+      {
+        "key": "transfer-subheading",
+        "field": "textAutoResize"
+      },
+      {
+        "key": "transfer-subheading",
+        "field": "fontStyle"
+      },
+      {
+        "key": "transfer-subheading",
+        "field": "x"
+      },
+      {
+        "key": "transfer-subheading",
+        "field": "y"
+      },
+      {
+        "key": "transfer-subheading",
+        "field": "width"
+      },
+      {
+        "key": "transfer-subheading",
+        "field": "height"
+      },
+      {
+        "key": "transfer-recipient-label",
+        "field": "type"
+      },
+      {
+        "key": "transfer-recipient-label",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-recipient-label",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-recipient-label",
+        "field": "name"
+      },
+      {
+        "key": "transfer-recipient-label",
+        "field": "content"
+      },
+      {
+        "key": "transfer-recipient-label",
+        "field": "fontFamily"
+      },
+      {
+        "key": "transfer-recipient-label",
+        "field": "fontSize"
+      },
+      {
+        "key": "transfer-recipient-label",
+        "field": "textAutoResize"
+      },
+      {
+        "key": "transfer-recipient-label",
+        "field": "fontStyle"
+      },
+      {
+        "key": "transfer-recipient-label",
+        "field": "x"
+      },
+      {
+        "key": "transfer-recipient-label",
+        "field": "y"
+      },
+      {
+        "key": "transfer-recipient-label",
+        "field": "width"
+      },
+      {
+        "key": "transfer-recipient-label",
+        "field": "height"
+      },
+      {
+        "key": "transfer-recipient",
+        "field": "type"
+      },
+      {
+        "key": "transfer-recipient",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-recipient",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-recipient",
+        "field": "name"
+      },
+      {
+        "key": "transfer-recipient",
+        "field": "x"
+      },
+      {
+        "key": "transfer-recipient",
+        "field": "y"
+      },
+      {
+        "key": "transfer-recipient",
+        "field": "width"
+      },
+      {
+        "key": "transfer-recipient",
+        "field": "height"
+      },
+      {
+        "key": "transfer-avatar",
+        "field": "type"
+      },
+      {
+        "key": "transfer-avatar",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-avatar",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-avatar",
+        "field": "name"
+      },
+      {
+        "key": "transfer-avatar",
+        "field": "x"
+      },
+      {
+        "key": "transfer-avatar",
+        "field": "y"
+      },
+      {
+        "key": "transfer-avatar",
+        "field": "width"
+      },
+      {
+        "key": "transfer-avatar",
+        "field": "height"
+      },
+      {
+        "key": "transfer-initials",
+        "field": "type"
+      },
+      {
+        "key": "transfer-initials",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-initials",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-initials",
+        "field": "name"
+      },
+      {
+        "key": "transfer-initials",
+        "field": "content"
+      },
+      {
+        "key": "transfer-initials",
+        "field": "fontFamily"
+      },
+      {
+        "key": "transfer-initials",
+        "field": "fontSize"
+      },
+      {
+        "key": "transfer-initials",
+        "field": "textAutoResize"
+      },
+      {
+        "key": "transfer-initials",
+        "field": "fontStyle"
+      },
+      {
+        "key": "transfer-initials",
+        "field": "x"
+      },
+      {
+        "key": "transfer-initials",
+        "field": "y"
+      },
+      {
+        "key": "transfer-initials",
+        "field": "width"
+      },
+      {
+        "key": "transfer-initials",
+        "field": "height"
+      },
+      {
+        "key": "transfer-name",
+        "field": "type"
+      },
+      {
+        "key": "transfer-name",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-name",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-name",
+        "field": "name"
+      },
+      {
+        "key": "transfer-name",
+        "field": "content"
+      },
+      {
+        "key": "transfer-name",
+        "field": "fontFamily"
+      },
+      {
+        "key": "transfer-name",
+        "field": "fontSize"
+      },
+      {
+        "key": "transfer-name",
+        "field": "textAutoResize"
+      },
+      {
+        "key": "transfer-name",
+        "field": "fontStyle"
+      },
+      {
+        "key": "transfer-name",
+        "field": "x"
+      },
+      {
+        "key": "transfer-name",
+        "field": "y"
+      },
+      {
+        "key": "transfer-name",
+        "field": "width"
+      },
+      {
+        "key": "transfer-name",
+        "field": "height"
+      },
+      {
+        "key": "transfer-phone",
+        "field": "type"
+      },
+      {
+        "key": "transfer-phone",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-phone",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-phone",
+        "field": "name"
+      },
+      {
+        "key": "transfer-phone",
+        "field": "content"
+      },
+      {
+        "key": "transfer-phone",
+        "field": "fontFamily"
+      },
+      {
+        "key": "transfer-phone",
+        "field": "fontSize"
+      },
+      {
+        "key": "transfer-phone",
+        "field": "textAutoResize"
+      },
+      {
+        "key": "transfer-phone",
+        "field": "fontStyle"
+      },
+      {
+        "key": "transfer-phone",
+        "field": "x"
+      },
+      {
+        "key": "transfer-phone",
+        "field": "y"
+      },
+      {
+        "key": "transfer-phone",
+        "field": "width"
+      },
+      {
+        "key": "transfer-phone",
+        "field": "height"
+      },
+      {
+        "key": "transfer-edit",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-edit",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-edit",
+        "field": "name"
+      },
+      {
+        "key": "transfer-edit",
+        "field": "x"
+      },
+      {
+        "key": "transfer-edit",
+        "field": "y"
+      },
+      {
+        "key": "transfer-edit",
+        "field": "width"
+      },
+      {
+        "key": "transfer-edit",
+        "field": "height"
+      },
+      {
+        "key": "transfer-amount",
+        "field": "type"
+      },
+      {
+        "key": "transfer-amount",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-amount",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-amount",
+        "field": "name"
+      },
+      {
+        "key": "transfer-amount",
+        "field": "x"
+      },
+      {
+        "key": "transfer-amount",
+        "field": "y"
+      },
+      {
+        "key": "transfer-amount",
+        "field": "width"
+      },
+      {
+        "key": "transfer-amount",
+        "field": "height"
+      },
+      {
+        "key": "transfer-amount-label",
+        "field": "type"
+      },
+      {
+        "key": "transfer-amount-label",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-amount-label",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-amount-label",
+        "field": "name"
+      },
+      {
+        "key": "transfer-amount-label",
+        "field": "content"
+      },
+      {
+        "key": "transfer-amount-label",
+        "field": "fontFamily"
+      },
+      {
+        "key": "transfer-amount-label",
+        "field": "fontSize"
+      },
+      {
+        "key": "transfer-amount-label",
+        "field": "textAutoResize"
+      },
+      {
+        "key": "transfer-amount-label",
+        "field": "fontStyle"
+      },
+      {
+        "key": "transfer-amount-label",
+        "field": "x"
+      },
+      {
+        "key": "transfer-amount-label",
+        "field": "y"
+      },
+      {
+        "key": "transfer-amount-label",
+        "field": "width"
+      },
+      {
+        "key": "transfer-amount-label",
+        "field": "height"
+      },
+      {
+        "key": "transfer-amount-value",
+        "field": "type"
+      },
+      {
+        "key": "transfer-amount-value",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-amount-value",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-amount-value",
+        "field": "name"
+      },
+      {
+        "key": "transfer-amount-value",
+        "field": "content"
+      },
+      {
+        "key": "transfer-amount-value",
+        "field": "fontFamily"
+      },
+      {
+        "key": "transfer-amount-value",
+        "field": "fontSize"
+      },
+      {
+        "key": "transfer-amount-value",
+        "field": "textAutoResize"
+      },
+      {
+        "key": "transfer-amount-value",
+        "field": "fontStyle"
+      },
+      {
+        "key": "transfer-amount-value",
+        "field": "x"
+      },
+      {
+        "key": "transfer-amount-value",
+        "field": "y"
+      },
+      {
+        "key": "transfer-amount-value",
+        "field": "width"
+      },
+      {
+        "key": "transfer-amount-value",
+        "field": "height"
+      },
+      {
+        "key": "transfer-currency",
+        "field": "type"
+      },
+      {
+        "key": "transfer-currency",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-currency",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-currency",
+        "field": "name"
+      },
+      {
+        "key": "transfer-currency",
+        "field": "content"
+      },
+      {
+        "key": "transfer-currency",
+        "field": "fontFamily"
+      },
+      {
+        "key": "transfer-currency",
+        "field": "fontSize"
+      },
+      {
+        "key": "transfer-currency",
+        "field": "textAutoResize"
+      },
+      {
+        "key": "transfer-currency",
+        "field": "fontStyle"
+      },
+      {
+        "key": "transfer-currency",
+        "field": "x"
+      },
+      {
+        "key": "transfer-currency",
+        "field": "y"
+      },
+      {
+        "key": "transfer-currency",
+        "field": "width"
+      },
+      {
+        "key": "transfer-currency",
+        "field": "height"
+      },
+      {
+        "key": "transfer-button",
+        "field": "type"
+      },
+      {
+        "key": "transfer-button",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-button",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-button",
+        "field": "name"
+      },
+      {
+        "key": "transfer-button",
+        "field": "x"
+      },
+      {
+        "key": "transfer-button",
+        "field": "y"
+      },
+      {
+        "key": "transfer-button",
+        "field": "width"
+      },
+      {
+        "key": "transfer-button",
+        "field": "height"
+      },
+      {
+        "key": "transfer-button-label",
+        "field": "type"
+      },
+      {
+        "key": "transfer-button-label",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-button-label",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-button-label",
+        "field": "name"
+      },
+      {
+        "key": "transfer-button-label",
+        "field": "content"
+      },
+      {
+        "key": "transfer-button-label",
+        "field": "fontFamily"
+      },
+      {
+        "key": "transfer-button-label",
+        "field": "fontSize"
+      },
+      {
+        "key": "transfer-button-label",
+        "field": "fontStyle"
+      },
+      {
+        "key": "transfer-button-arrow",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-button-arrow",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-button-arrow",
+        "field": "name"
+      },
+      {
+        "key": "transfer-button-arrow",
+        "field": "width"
+      },
+      {
+        "key": "transfer-button-arrow",
+        "field": "height"
+      },
+      {
+        "key": "transfer-next-step",
+        "field": "type"
+      },
+      {
+        "key": "transfer-next-step",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-next-step",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-next-step",
+        "field": "name"
+      },
+      {
+        "key": "transfer-next-step",
+        "field": "content"
+      },
+      {
+        "key": "transfer-next-step",
+        "field": "fontFamily"
+      },
+      {
+        "key": "transfer-next-step",
+        "field": "fontSize"
+      },
+      {
+        "key": "transfer-next-step",
+        "field": "textAutoResize"
+      },
+      {
+        "key": "transfer-next-step",
+        "field": "textAlign"
+      },
+      {
+        "key": "transfer-next-step",
+        "field": "fontStyle"
+      },
+      {
+        "key": "transfer-next-step",
+        "field": "x"
+      },
+      {
+        "key": "transfer-next-step",
+        "field": "y"
+      },
+      {
+        "key": "transfer-next-step",
+        "field": "width"
+      },
+      {
+        "key": "transfer-next-step",
+        "field": "height"
+      },
+      {
+        "key": "transfer-home",
+        "field": "type"
+      },
+      {
+        "key": "transfer-home",
+        "field": "parentId"
+      },
+      {
+        "key": "transfer-home",
+        "field": "treeParentId"
+      },
+      {
+        "key": "transfer-home",
+        "field": "name"
+      },
+      {
+        "key": "transfer-home",
+        "field": "x"
+      },
+      {
+        "key": "transfer-home",
+        "field": "y"
+      },
+      {
+        "key": "transfer-home",
+        "field": "width"
+      },
+      {
+        "key": "transfer-home",
+        "field": "height"
+      }
+    ],
+    "differences": []
+  },
+  "unchecked": [
+    {
+      "key": "transfer-screen-20260912",
+      "field": "clipContent",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-screen-20260912",
+      "field": "background",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-screen-20260912",
+      "field": "cornerRadius",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-screen-20260912",
+      "field": "layout",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-time",
+      "field": "lineHeight",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-time",
+      "field": "color",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-back",
+      "field": "type",
+      "reason": "Imported image/SVG representation is not compared"
+    },
+    {
+      "key": "transfer-back",
+      "field": "svg",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-demo",
+      "field": "background",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-demo",
+      "field": "cornerRadius",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-demo",
+      "field": "layout",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-demo-text",
+      "field": "lineHeight",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-demo-text",
+      "field": "color",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-heading",
+      "field": "lineHeight",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-heading",
+      "field": "color",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-subheading",
+      "field": "lineHeight",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-subheading",
+      "field": "color",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-recipient-label",
+      "field": "lineHeight",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-recipient-label",
+      "field": "color",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-recipient",
+      "field": "background",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-recipient",
+      "field": "stroke",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-recipient",
+      "field": "strokeWidth",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-recipient",
+      "field": "cornerRadius",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-recipient",
+      "field": "layout",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-avatar",
+      "field": "background",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-avatar",
+      "field": "cornerRadius",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-avatar",
+      "field": "layout",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-initials",
+      "field": "lineHeight",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-initials",
+      "field": "color",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-name",
+      "field": "lineHeight",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-name",
+      "field": "color",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-phone",
+      "field": "lineHeight",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-phone",
+      "field": "color",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-edit",
+      "field": "type",
+      "reason": "Imported image/SVG representation is not compared"
+    },
+    {
+      "key": "transfer-edit",
+      "field": "svg",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-amount",
+      "field": "background",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-amount",
+      "field": "stroke",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-amount",
+      "field": "strokeWidth",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-amount",
+      "field": "cornerRadius",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-amount",
+      "field": "layout",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-amount-label",
+      "field": "lineHeight",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-amount-label",
+      "field": "color",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-amount-value",
+      "field": "lineHeight",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-amount-value",
+      "field": "color",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-currency",
+      "field": "lineHeight",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-currency",
+      "field": "color",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-button",
+      "field": "background",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-button",
+      "field": "cornerRadius",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-button",
+      "field": "layout",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-button-label",
+      "field": "lineHeight",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-button-label",
+      "field": "color",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-button-arrow",
+      "field": "type",
+      "reason": "Imported image/SVG representation is not compared"
+    },
+    {
+      "key": "transfer-button-arrow",
+      "field": "svg",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-next-step",
+      "field": "lineHeight",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-next-step",
+      "field": "color",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-home",
+      "field": "fill",
+      "reason": "Not included in this checker; inspect separately"
+    },
+    {
+      "key": "transfer-home",
+      "field": "cornerRadius",
+      "reason": "Not included in this checker; inspect separately"
+    }
+  ],
+  "readNodes": 26,
+  "expectedNodes": 23,
+  "fidelityWarnings": [],
+  "visual": "not-tested",
+  "actualClicks": "not-tested",
+  "overallStatus": "needs_review",
+  "nextStep": "Inspect unchecked properties and a fresh PNG. This report does not establish visual fidelity or freshness of the saved snapshot."
+}

@@ -11,13 +11,14 @@ import { startBroker } from '../src/broker.mjs';
 import { connectSecure } from '../src/broker-client.mjs';
 import { pluginRevision } from '../src/runtime-info.mjs';
 
-test('stdio MCP: два чата читают один файл, includeFiles работает с нулём и несколькими файлами', async t => {
+test('stdio MCP: два чата читают один файл, закрытие stdin завершает только свой MCP без SIGTERM', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'figma-mcp-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   await prepareInstallation(directory);
   const data = await loadInstallation(directory);
   const broker = await startBroker({ directory, port: 0 }); t.after(() => broker.stop());
   const commands = [];
+  const shutdownSignals = new WeakMap();
   const probes = [];
   let busyFile = null;
   async function addPlugin(fileKey, pluginBuild = pluginRevision()) {
@@ -43,6 +44,7 @@ test('stdio MCP: два чата читают один файл, includeFiles р
     // Use an ephemeral test port so updating an already running installation
     // does not require stopping the user's broker to run the installer tests.
     const entry = `
+      process.on('SIGTERM', () => process.stderr.write('TEST_SHUTDOWN_SIGTERM\\n'));
       import { BrokerClient } from ${JSON.stringify(new URL('../src/broker-client.mjs', import.meta.url).href)};
       const discover = BrokerClient.prototype.discover;
       BrokerClient.prototype.discover = function () { this.ports = [${broker.bridge.port}]; this.autoStart = false; return discover.call(this); };
@@ -50,6 +52,9 @@ test('stdio MCP: два чата читают один файл, includeFiles р
     `;
     const transport = new StdioClientTransport({ command: process.execPath, args: ['--input-type=module', '--eval', entry], env: { ...process.env, FIGMA_LOCAL_STATE_DIR: directory }, stderr: 'pipe' });
     const client = new Client({ name: 'auto-test', version: '1' });
+    const stderr = [];
+    transport.stderr.on('data', chunk => stderr.push(String(chunk)));
+    shutdownSignals.set(client, stderr);
     t.after(() => client.close());
     await client.connect(transport);
     return client;
@@ -121,6 +126,8 @@ test('stdio MCP: два чата читают один файл, includeFiles р
   assert.equal((await call(second, { fileKey: 'second-file' })).isError, undefined);
   assert.equal(commands.at(-1).fileKey, 'second-file');
   await first.close();
+  assert.equal(shutdownSignals.get(first).join('').includes('TEST_SHUTDOWN_SIGTERM'), false,
+    'закрытие stdin должно освобождать соединение без двухсекундного ожидания SIGTERM');
   await new Promise(resolve => setTimeout(resolve, 50));
   assert.equal((await call(second, { fileKey: 'stdio-file' })).isError, undefined);
 });

@@ -57,6 +57,8 @@ test("ошибка снимка не превращает успешную за�
   assert.equal(response.structuredContent.operationStatus, "applied");
   assert.equal(response.structuredContent.screenshot.status, "failed");
   assert.equal(writes, 1);
+  assert.deepEqual(response.structuredContent.timings.stages.map(({ name, status }) => [name, status]),
+    [['resolveTarget', 'ok'], ['execute', 'ok'], ['screenshot', 'error']]);
 });
 
 test('ошибка готовности сохраняет следующий шаг в MCP-ответе', () => {
@@ -79,6 +81,8 @@ test("ошибка записи сохраняет статус отката и 
   assert.equal(response.isError, true);
   assert.equal(response.structuredContent.operationStatus, "partial");
   assert.deepEqual(response.structuredContent.rollbackErrors, ["Не восстановлен узел"]);
+  assert.deepEqual(response.structuredContent.timings.stages.map(({ name, status }) => [name, status]),
+    [['resolveTarget', 'ok'], ['execute', 'error']]);
 });
 
 test("PNG и одинаковые метаданные доступны в обоих форматах ответа", async () => {
@@ -91,4 +95,28 @@ test("PNG и одинаковые метаданные доступны в об�
   assert.deepEqual(JSON.parse(response.content[0].text), response.structuredContent);
   assert.equal(response.content[1].type, "image");
   assert.equal(response.structuredContent.screenshot.base64, undefined);
+  const timings = response.structuredContent.timings;
+  assert.equal(timings.version, 1);
+  assert.equal(timings.scope, 'bridge_operation');
+  assert.deepEqual(timings.stages.map(stage => stage.name), ['resolveTarget', 'execute', 'screenshot']);
+  assert.ok(timings.totalMs >= 0);
+  for (const stage of timings.stages) {
+    assert.ok(Number.isFinite(stage.durationMs) && stage.durationMs >= 0);
+    assert.ok(stage.durationMs <= timings.totalMs);
+    assert.equal(stage.status, 'ok');
+  }
+});
+
+test('замер ошибки подключения сохраняет unknown и не отправляет команду', async () => {
+  const bridge = {
+    runInFile: async () => { throw Object.assign(new Error('Нет соединения'), { operationStatus: 'unknown' }); },
+    execute: () => assert.fail('Команда не должна отправляться'),
+  };
+  const response = await runToolOperation(bridge, {}, 'code', { operationName: 'patch_nodes' });
+  assert.equal(response.isError, true);
+  assert.equal(response.structuredContent.operationStatus, 'unknown');
+  assert.equal(response.structuredContent.timings.operation, 'patch_nodes');
+  assert.deepEqual(response.structuredContent.timings.stages.map(({ name, status }) => [name, status]),
+    [['resolveTarget', 'error']]);
+  assert.deepEqual(JSON.parse(response.content[0].text), response.structuredContent);
 });
