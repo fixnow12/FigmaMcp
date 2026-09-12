@@ -42,7 +42,7 @@ for (const domain of [
 const mcp = JSON.parse(await readFile(resolve(root, 'plugins/figma-local-bridge/.mcp.json'), 'utf8'));
 assert.deepEqual(Object.keys(mcp.mcpServers), ['figma-local']);
 
-const skip = new Set(['.git', 'node_modules', 'migration-backup', 'dist']);
+const skip = new Set(['.git', '.tmp-figma', 'node_modules', 'migration-backup', 'dist']);
 const binaryExtensions = new Set(['.png', '.jpg', '.jpeg', '.gif', '.ico', '.zip']);
 const findings = [];
 const secretPatterns = [
@@ -50,6 +50,7 @@ const secretPatterns = [
   /ghp_[A-Za-z0-9]{30,}/,
   /sk-[A-Za-z0-9_-]{20,}/,
   /figd_[A-Za-z0-9_-]{20,}/,
+  /\bfileKey["']?\s*(?:=|:)\s*["'`]?([A-Za-z0-9_-]{20,})/i,
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/
 ];
 
