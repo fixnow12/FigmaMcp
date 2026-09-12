@@ -5,6 +5,27 @@ const id = () => z.string().min(1).max(160);
 const position = () => z.object({ x: z.number(), y: z.number() }).strict();
 const preview = () => ({ screenshot: z.boolean().optional(), screenshotScale: z.number().min(0.5).max(4).optional(), fileKey: id().optional().describe(fileKeyDescription) });
 
+export const activatePageInputSchema = {
+  pageId: id().describe("ID страницы PAGE целевого файла"),
+  fileKey: id().optional().describe(fileKeyDescription),
+};
+export const activatePageSchema = z.object(activatePageInputSchema).strict();
+
+export const getFileMetadataInputSchema = {
+  fileKey: id().optional().describe(fileKeyDescription),
+};
+export const getFileMetadataSchema = z.object(getFileMetadataInputSchema).strict();
+
+export const setFileMetadataInputSchema = {
+  name: z.string().trim().min(1).max(240).optional().describe("Проверка уже установленного имени файла. Иное имя отклоняется FILE_RENAME_UNSUPPORTED: Plugin API не переименовывает файлы."),
+  thumbnailNodeId: id().optional().describe("ID FRAME, COMPONENT, COMPONENT_SET или SECTION для установки thumbnail"),
+  fileKey: id().optional().describe(fileKeyDescription),
+};
+export const setFileMetadataSchema = z.object(setFileMetadataInputSchema).strict().refine(
+  input => input.name !== undefined || input.thumbnailNodeId !== undefined,
+  "Укажите name для проверки текущего имени и/или thumbnailNodeId для записи thumbnail",
+);
+
 export const cloneNodesInputSchema = {
   copies: z.array(z.object({
     sourceId: id(), parentId: id().optional(), key: id(),

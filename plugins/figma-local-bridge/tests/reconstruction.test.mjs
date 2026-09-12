@@ -46,6 +46,8 @@ test("dryRun не создаёт слоёв; недоступные шрифты
   const good = await recreateScreen(f.bridge, { fileKey: "file", sourceId: f.root.id, dryRun: true });
   assert.equal(good.structuredContent.ready, true);
   assert.equal(f.nodes.size, count);
+  assert.deepEqual(good.structuredContent.timings.stages.map(stage => stage.name),
+    ['validate', 'resolveTarget', 'readSource', 'compile', 'preflight']);
   f.figma.loadFontAsync = async () => { throw new Error("Не загружен"); };
   const bad = await recreateScreen(f.bridge, { fileKey: "file", sourceId: f.root.id });
   assert.equal(bad.isError, true);
@@ -56,6 +58,81 @@ test("dryRun не создаёт слоёв; недоступные шрифты
   const grid = await recreateScreen(f.bridge, { fileKey: "file", sourceId: f.root.id });
   assert.match(grid.structuredContent.error, /GRID/);
   assert.equal(f.nodes.size, count);
+});
+
+test('реконструкция восстанавливает Fixed и Hug корня независимо от начальных режимов нового фрейма', async () => {
+  for (const [mode, horizontal, vertical] of [['HORIZONTAL', 'FIXED', 'HUG'], ['VERTICAL', 'HUG', 'FIXED']]) {
+    const f = fixture();
+    Object.assign(f.root, { layoutMode: mode, layoutSizingHorizontal: horizontal, layoutSizingVertical: vertical });
+    f.figma.createFrame = () => f.make('FRAME', { effects: [],
+      layoutSizingHorizontal: horizontal === 'FIXED' ? 'HUG' : 'FIXED',
+      layoutSizingVertical: vertical === 'FIXED' ? 'HUG' : 'FIXED' });
+    const compiled = compileReconstruction(await executeGenerated(f.figma, buildReconstructionRead(f.root.id)), { key: 'root-sizing' });
+    const result = await executeGenerated(f.figma, buildReconstructionWrite(compiled));
+    const rebuilt = f.nodes.get(result.rootId);
+    assert.equal(rebuilt.layoutSizingHorizontal, horizontal, mode + ': ширина');
+    assert.equal(rebuilt.layoutSizingVertical, vertical, mode + ': высота');
+    assert.equal(f.root.layoutSizingHorizontal, horizontal);
+    assert.equal(f.root.layoutSizingVertical, vertical);
+  }
+});
+
+test('проверка реконструкции замечает расхождение режима корня даже при изменении текста', async () => {
+  const f = fixture();
+  const compiled = compileReconstruction(await executeGenerated(f.figma, buildReconstructionRead(f.root.id)), {
+    key: 'root-sizing-verification', changes: [{ sourceId: f.text.id, action: 'update', set: { content: 'Новый заголовок' } }],
+  });
+  const getNode = f.figma.getNodeByIdAsync;
+  // Model an API state that diverges before read-back. The verifier must report
+  // it without changing the original or turning an applied write into a retry.
+  f.figma.getNodeByIdAsync = async id => {
+    const node = await getNode(id);
+    if (node?.getPluginData('codex-spec-key') === 'root-sizing-verification') node.layoutSizingHorizontal = 'HUG';
+    return node;
+  };
+  const result = await executeGenerated(f.figma, buildReconstructionWrite(compiled));
+  assert.equal(result.verification.status, 'differences');
+  assert.ok(result.verification.differences.some(d => d.property === 'layoutSizingHorizontal' && d.expected === 'FIXED' && d.actual === 'HUG'));
+  assert.equal(f.root.layoutSizingHorizontal, 'FIXED');
+  assert.ok(f.nodes.has(result.rootId), 'Проверка не удаляет созданный результат');
+});
+
+test('отключение Auto Layout у Hug-корня сохраняет размеры и не пытается восстановить недопустимый Hug', async () => {
+  const f = fixture();
+  Object.assign(f.root, { layoutMode: 'HORIZONTAL', layoutSizingHorizontal: 'HUG', layoutSizingVertical: 'HUG' });
+  f.rejectWrites((node, field, value) => node.type === 'FRAME' && node.layoutMode === 'NONE'
+    && ['layoutSizingHorizontal', 'layoutSizingVertical'].includes(field) && value === 'HUG');
+  const response = await recreateScreen(f.bridge, { fileKey: 'file', sourceId: f.root.id, screenshot: false,
+    changes: [{ sourceId: f.root.id, action: 'update', set: { layout: { direction: 'none' } } }] });
+  assert.equal(response.isError, undefined, response.structuredContent.error);
+  const rebuilt = f.nodes.get(response.structuredContent.result.rootId);
+  assert.equal(rebuilt.layoutMode, 'NONE');
+  assert.equal(rebuilt.layoutSizingHorizontal, 'FIXED');
+  assert.equal(rebuilt.layoutSizingVertical, 'FIXED');
+  assert.equal(rebuilt.width, 1440);
+  assert.equal(rebuilt.height, 1032);
+  assert.equal(rebuilt.children[0].x, 80);
+  assert.equal(rebuilt.children[0].y, 90);
+  assert.equal(response.structuredContent.result.verification.status, 'checked');
+  assert.equal(f.root.layoutMode, 'HORIZONTAL');
+  assert.equal(f.root.layoutSizingHorizontal, 'HUG');
+});
+
+test('при отключении Auto Layout явно заданные координаты ребёнка имеют приоритет в любом порядке changes', async () => {
+  for (const parentFirst of [true, false]) {
+    const f = fixture();
+    f.root.layoutMode = 'HORIZONTAL';
+    const parentChange = { sourceId: f.root.id, action: 'update', set: { layout: { direction: 'none' } } };
+    const childChange = { sourceId: f.card.id, action: 'update', set: { x: 210 } };
+    const compiled = compileReconstruction(await executeGenerated(f.figma, buildReconstructionRead(f.root.id)), {
+      key: 'layout-none-coordinates', changes: parentFirst ? [parentChange, childChange] : [childChange, parentChange],
+    });
+    const result = await executeGenerated(f.figma, buildReconstructionWrite(compiled));
+    const card = f.nodes.get(result.mapping.find(m => m.sourceId === f.card.id).id);
+    assert.equal(card.x, 210);
+    assert.equal(card.y, 90);
+    assert.equal(f.card.x, 80);
+  }
 });
 
 test("mixed fontName с одним диапазоном сохраняет фактический шрифт при воссоздании", async () => {
@@ -107,8 +184,15 @@ test("ошибка PNG после сборки сохраняет applied; fileK
   assert.equal(response.isError, undefined);
   assert.equal(response.structuredContent.operationStatus, "applied");
   assert.equal(response.structuredContent.screenshot.status, "failed");
+  assert.equal(response.structuredContent.timings.operation, 'recreate_screen');
+  assert.equal(response.structuredContent.timings.scope, 'reconstruction_handler');
+  assert.deepEqual(response.structuredContent.timings.stages.map(({ name, status }) => [name, status]),
+    [['validate', 'ok'], ['resolveTarget', 'ok'], ['readSource', 'ok'], ['compile', 'ok'], ['write', 'ok'], ['screenshot', 'error']]);
+  assert.deepEqual(JSON.parse(response.content[0].text), response.structuredContent);
   const missing = await recreateScreen(f.bridge, { sourceId: f.root.id });
   assert.equal(missing.isError, true);
+  assert.deepEqual(missing.structuredContent.timings.stages.map(({ name, status }) => [name, status]), [['validate', 'error']]);
+  assert.equal(missing.content[0].text, missing.structuredContent.error);
 });
 
 test("линия высотой 0 остаётся LINE; скрытые шрифты и векторы не блокируют видимый экран", async () => {
@@ -176,7 +260,7 @@ test("похожий экран: меняет текст и оформление
   assert.equal(f.text.characters, "Близкие Другие");
   assert.equal(f.root.children.length, 1);
   assert.equal(result.verification.differenceCount, 0);
-  assert.equal(result.verification.scope, "retained-nodes-text-and-fonts");
+  assert.equal(result.verification.scope, "retained-nodes-text-fonts-and-root-sizing");
 });
 
 test("замена и удаление работают внутри новой сборки, порядок блоков сохраняется", async () => {

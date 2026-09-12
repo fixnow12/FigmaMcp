@@ -791,6 +791,7 @@ let truncated = false;
 const unread = [];
 const assets = [];
 const fidelityWarnings = [];
+const instanceReads = [];
 
 function inspect(node, level) {
   if (count >= maxNodes) {
@@ -858,6 +859,11 @@ function inspect(node, level) {
   if (node.type === "COMPONENT") item.variantProperties = node.variantProperties;
   if (node.type === "COMPONENT_SET") item.variantGroupProperties = node.variantGroupProperties;
   if (detail === "full") {
+    if (node.type === "INSTANCE") {
+      instanceReads.push({ node, item });
+      item.overrides = node.overrides;
+    }
+    if ("componentPropertyReferences" in node) item.componentPropertyReferences = node.componentPropertyReferences;
     const serializable = (value) => value === figma.mixed ? "MIXED" : value;
     item.parentId = node.parent?.id || null;
     for (const field of ["opacity", "fills", "strokes", "strokeWeight", "cornerRadius", "clipsContent", "effects", "fillStyleId", "strokeStyleId", "effectStyleId", "boundVariables", "explicitVariableModes", "layoutSizingHorizontal", "layoutSizingVertical", "layoutPositioning", "minWidth", "maxWidth", "minHeight", "maxHeight", "absoluteBoundingBox", "relativeTransform", "rotation", "constraints", "topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius", "cornerSmoothing", "strokeAlign", "strokeTopWeight", "strokeBottomWeight", "strokeLeftWeight", "strokeRightWeight", "dashPattern", "blendMode", "isMask", "maskType", "textAlignVertical", "paragraphSpacing", "paragraphIndent", "vectorPaths", "strokeCap", "strokeJoin"]) {
@@ -903,9 +909,23 @@ const roots = requested ? await Promise.all(requested.map((id) => readService.no
   error.operationStatus = "not_applied";
   throw error;
 }) : operationPage.selection;
+const selection = roots.filter(Boolean).map((node) => inspect(node, 0)).filter(Boolean);
+// Resolve read-only library provenance after the synchronous bounded tree walk.
+// No imports or instance mutations; a missing resource must not invent a key.
+await Promise.all(instanceReads.map(async ({ node, item }) => {
+  try {
+    if (typeof node.getMainComponentAsync !== "function") throw new Error("getMainComponentAsync unavailable");
+    const component = await readService.wait(node.getMainComponentAsync(), "исходный компонент " + node.id);
+    item.mainComponent = component
+      ? { status: "resolved", id: component.id, key: component.key, name: component.name, remote: component.remote }
+      : { status: "missing" };
+  } catch (error) {
+    item.mainComponent = { status: "unavailable", message: String(error.message || error), ...(error.code ? { code: error.code } : {}) };
+  }
+}));
 return {
   page: { id: operationPage.id, name: operationPage.name },
-  selection: roots.filter(Boolean).map((node) => inspect(node, 0)).filter(Boolean),
+  selection,
   missing: requested ? requested.filter((_id, index) => !roots[index]) : [],
   inspectedNodes: count,
   truncated,

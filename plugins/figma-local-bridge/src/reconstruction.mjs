@@ -6,6 +6,7 @@ import { parseRenderScreenInput, normalizeScreenSpec, publicDesignNodeSchema } f
 import { fidelityFields } from "./fidelity.mjs";
 import { toolSuccess, toolFailure } from "./tool-results.mjs";
 import { createFontService } from "./font-service.mjs";
+import { createOperationTimings } from "./operation-timings.mjs";
 
 const changeSchema = z.object({
   sourceId: z.string().min(1).describe("ID узла внутри исходного экрана из inspect_selection. Изменения применяются только к новой сборке."),
@@ -247,6 +248,22 @@ function customizeReconstruction(spec, mappings, changes) {
       if (value.stroke) delete target.strokes;
       if (value.cornerRadius !== undefined) for (const field of ["topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius"]) delete target[field];
       Object.assign(target, value);
+      // Turning off Auto Layout freezes the container at its current size.
+      // HUG is invalid on a free-layout frame; preserve FILL relative to an
+      // unchanged Auto Layout parent, and let explicit dimensions win below.
+      if (value.layout?.direction === "none") {
+        entry.source = { ...entry.source,
+          layoutSizingHorizontal: entry.source.layoutSizingHorizontal === "HUG" ? "FIXED" : entry.source.layoutSizingHorizontal,
+          layoutSizingVertical: entry.source.layoutSizingVertical === "HUG" ? "FIXED" : entry.source.layoutSizingVertical };
+        // Auto Layout children originally omitted x/y. Freeze their captured
+        // positions when that layout is removed; explicit changes win.
+        for (const child of spec.nodes.filter(node => node.parentKey === target.key)) {
+          const original = mappings.find(mapping => mapping.key === child.key);
+          if (!original) continue;
+          child.x ??= original.expectedBounds.x;
+          child.y ??= original.expectedBounds.y;
+        }
+      }
       if (value.width !== undefined) entry.source = { ...entry.source, layoutSizingHorizontal: typeof value.width === "number" ? "FIXED" : value.width.toUpperCase() };
       if (value.height !== undefined) entry.source = { ...entry.source, layoutSizingVertical: typeof value.height === "number" ? "FIXED" : value.height.toUpperCase() };
     } else if (change.action === "remove" || change.action === "replace") {
@@ -296,7 +313,7 @@ export function buildReconstructionWrite(compiled, position) {
   const byKey = new Map([root, ...root.findAll()].map(n => [n.getPluginData("codex-spec-key"), n]));
   for (const entry of [...entries].reverse()) {
     const node = byKey.get(entry.key);
-    if (!node || node === root || entry.isSvg) continue;
+    if (!node || entry.isSvg) continue;
     for (const [field, value] of [["layoutSizingHorizontal", entry.sizingH], ["layoutSizingVertical", entry.sizingV]]) {
       if (value && field in node && (value !== "FILL" || ["HORIZONTAL", "VERTICAL"].includes(node.parent.layoutMode))) node[field] = value;
     }
@@ -314,6 +331,7 @@ try {
   const entries = ${JSON.stringify(mappings)};
   const byKey = new Map([root, ...root.findAll()].map(n => [n.getPluginData("codex-spec-key"), n]));
   const differences = [];
+  const rootSizing = { checked: [], skipped: [] };
   const originalRoot = entries[0].absolute;
   const rebuiltRoot = root.absoluteBoundingBox;
   const mapping = [];
@@ -321,6 +339,17 @@ try {
     const node = byKey.get(entry.key);
     if (!node) { differences.push({ sourceId: entry.sourceId, property: "missing" }); continue; }
     mapping.push({ sourceId: entry.sourceId, id: node.id, key: entry.key });
+    if (node === root) for (const [field, expected] of [["layoutSizingHorizontal", entry.sizingH], ["layoutSizingVertical", entry.sizingV]]) {
+      if (!expected) continue;
+      // A detached screen lives in a SECTION, so its original parent's FILL
+      // relationship cannot be restored. Do not claim that relationship passed.
+      if (expected === "FILL" && !["HORIZONTAL", "VERTICAL"].includes(node.parent.layoutMode)) {
+        rootSizing.skipped.push({ property: field, reason: "parent-without-auto-layout" });
+        continue;
+      }
+      rootSizing.checked.push(field);
+      if (node[field] !== expected) differences.push({ sourceId: entry.sourceId, id: node.id, property: field, expected, actual: node[field] });
+    }
     for (const f of ${customized} ? [] : node === root ? ["width", "height"] : ["x", "y", "width", "height"]) {
       if (Math.abs(node[f] - entry.bounds[f]) > 0.5) differences.push({ sourceId: entry.sourceId, id: node.id, property: f, expected: entry.bounds[f], actual: node[f] });
     }
@@ -338,42 +367,48 @@ try {
     if (entry.fontFamily && (node.fontName === figma.mixed || node.fontName.family !== entry.fontFamily || node.fontName.style !== entry.fontStyle)) differences.push({ sourceId: entry.sourceId, id: node.id, property: "fontName" });
   }
   result.mapping = mapping;
-  result.verification = { status: differences.length ? "differences" : "checked", scope: ${JSON.stringify(customized ? "retained-nodes-text-and-fonts" : "source-geometry-text-and-fonts")}, differences: differences.slice(0, 50), differenceCount: differences.length, pixelParityVerified: false };
+  result.verification = { status: differences.length ? "differences" : "checked", scope: ${JSON.stringify(customized ? "retained-nodes-text-fonts-and-root-sizing" : "source-geometry-text-fonts-and-root-sizing")}, rootSizing, differences: differences.slice(0, 50), differenceCount: differences.length, pixelParityVerified: false };
 } catch (error) { result.verification = { status: "failed", error: String(error.message || error), pixelParityVerified: false }; }
 return result;`;
 }
 
 export async function recreateScreen(bridge, input) {
   let writeAttempted = false;
+  const timing = createOperationTimings('recreate_screen', { scope: 'reconstruction_handler' });
+  let targetResolved;
   try {
-    const parsed = z.object(recreateScreenInputSchema).strict().parse(input);
-    return await bridge.runInFile(parsed.fileKey, async target => {
-      const read = await bridge.execute(buildReconstructionRead(parsed.sourceId, parsed.changes), { ...target, timeout: 20000, operation: { name: "recreate_screen", mutating: false } });
-      const compiled = compileReconstruction(read.result, { key: `recreated-${randomUUID()}`, name: parsed.name, changes: parsed.changes });
+    const parsed = timing.measureSync('validate', () => z.object(recreateScreenInputSchema).strict().parse(input));
+    targetResolved = timing.start('resolveTarget');
+    const response = await bridge.runInFile(parsed.fileKey, async target => {
+      targetResolved();
+      const read = await timing.measure('readSource', () => bridge.execute(buildReconstructionRead(parsed.sourceId, parsed.changes), { ...target, timeout: 20000, operation: { name: "recreate_screen", mutating: false } }));
+      const compiled = timing.measureSync('compile', () => compileReconstruction(read.result, { key: `recreated-${randomUUID()}`, name: parsed.name, changes: parsed.changes }));
       const summary = { sourceId: parsed.sourceId, sourceNodes: compiled.mappings.length, skippedHidden: compiled.skippedHidden, fonts: compiled.fonts,
         notes: ["Воссоздаётся видимое состояние экрана; скрытые ветки не включаются. Создаются новые редактируемые слои без clone(). Экземпляры и группы становятся фреймами; связи с библиотекой и Variables заменяются текущими значениями.", "Векторы создаются из исходных контуров, остальные фигуры — через SVG. Пиксельное совпадение требует визуальной проверки."] };
       summary.changes = compiled.customization;
       if (parsed.dryRun) {
-        await bridge.execute(buildRenderCode({ spec: compiled.spec, replace: false, dryRun: true }), { ...target, timeout: 20000, operation: { name: "recreate_screen", mutating: false } });
-        return toolSuccess({ ...summary, operationStatus: "read", ready: true });
+        await timing.measure('preflight', () => bridge.execute(buildRenderCode({ spec: compiled.spec, replace: false, dryRun: true }), { ...target, timeout: 20000, operation: { name: "recreate_screen", mutating: false } }));
+        return { payload: { ...summary, operationStatus: "read", ready: true } };
       }
       const bounds = compiled.source.absoluteBoundingBox || compiled.source.bounds;
       writeAttempted = true;
-      const payload = await bridge.execute(buildReconstructionWrite(compiled, parsed.position || { x: bounds.x + bounds.width + 80, y: bounds.y }), { ...target, timeout: 30000, operation: { name: "recreate_screen", mutating: true } });
+      const payload = await timing.measure('write', () => bridge.execute(buildReconstructionWrite(compiled, parsed.position || { x: bounds.x + bounds.width + 80, y: bounds.y }), { ...target, timeout: 30000, operation: { name: "recreate_screen", mutating: true } }));
       Object.assign(payload, summary, { operationStatus: "applied" });
-      if (parsed.screenshot === false) return toolSuccess(payload);
+      if (parsed.screenshot === false) return { payload };
       try {
-        const image = await bridge.captureScreenshot(payload.result.rootId, { ...target, scale: 1 });
+        const image = await timing.measure('screenshot', () => bridge.captureScreenshot(payload.result.rootId, { ...target, scale: 1 }));
         payload.screenshot = { status: "captured" };
-        return toolSuccess(payload, image);
+        return { payload, image };
       } catch (error) {
         payload.screenshot = { status: "failed", error: error.message };
         payload.warnings = ["Экран создан. Не повторяйте recreate_screen; запросите снимок через inspect_selection по rootId."];
-        return toolSuccess(payload);
+        return { payload };
       }
     }, { requireExplicitFile: true });
+    return toolSuccess(response.payload, response.image, timing);
   } catch (error) {
+    targetResolved?.('error');
     if (!writeAttempted) error.operationStatus = "not_applied";
-    return toolFailure(error);
+    return toolFailure(error, timing);
   }
 }

@@ -35,7 +35,7 @@ if (opencode) {
 // Codex otherwise inherits the task directory, not the installed plugin directory.
 if (!opencode) assert.equal(config.cwd, '.', 'MCP должен запускаться из корня установленного плагина');
 const serverCwd = resolve(dirname(configPath), config.cwd);
-const expectedTools = ['bind_variables', 'clone_nodes', 'export_assets', 'find_assets', 'get_status', 'inspect_selection', 'move_nodes', 'patch_nodes', 'recreate_screen', 'render_screen', 'set_reactions', 'set_text_links', 'use_component'];
+const expectedTools = ['activate_page', 'assemble_library_template', 'bind_variables', 'capture_library_template', 'clone_nodes', 'export_assets', 'find_assets', 'get_file_metadata', 'get_status', 'inspect_selection', 'move_nodes', 'patch_nodes', 'recreate_screen', 'render_screen', 'set_file_metadata', 'set_reactions', 'set_text_links', 'use_component'];
 
 const transport = new StdioClientTransport({
   // Do not substitute process.execPath: that hides a broken command/PATH.
