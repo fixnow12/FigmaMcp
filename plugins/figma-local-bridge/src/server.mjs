@@ -16,6 +16,7 @@ import { buildFindAssetsCode } from "./asset-catalog.mjs";
 import { buildSetTextLinksCode, buildSetReactionsCode } from "./interactions.mjs";
 import { buildBindVariablesCode } from "./variable-bindings.mjs";
 import { buildActivatePageCode, buildGetFileMetadataCode, buildSetFileMetadataCode } from "./file-context.mjs";
+import { getPageSettingsInputSchema, getPageSettingsSchema, setPageSettingsInputSchema, setPageSettingsSchema, buildGetPageSettingsCode, buildSetPageSettingsCode } from './page-settings.mjs';
 import { captureLibraryTemplateInputSchema, captureLibraryTemplateSchema, assembleLibraryTemplateInputSchema, assembleLibraryTemplateSchema, buildCaptureLibraryTemplateCode, buildAssembleLibraryTemplateCode } from './library-template.mjs';
 import { BrokerClient } from "./broker-client.mjs";
 import { runtimeDiagnostics } from "./runtime-info.mjs";
@@ -269,6 +270,20 @@ registerGeneratedTool("activate_page", {
   inputSchema: activatePageInputSchema,
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
 }, activatePageSchema, buildActivatePageCode);
+
+registerGeneratedTool('get_page_settings', {
+  title: 'Прочитать настройки страниц',
+  description: 'Читает backgrounds и явные режимы Variables с ключами коллекций и именами режимов. Без pageIds читает все страницы, включая пустые. Не импортирует ресурсы и не меняет холст.',
+  inputSchema: getPageSettingsInputSchema,
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+}, getPageSettingsSchema, buildGetPageSettingsCode, { mutating: false });
+
+registerGeneratedTool('set_page_settings', {
+  title: 'Настроить фон и режимы страниц',
+  description: 'Устанавливает SOLID-фон и явные режимы только выбранных PAGE текущего fileKey. Все цели и режимы проверяются до записи. Коллекция импортируется по anchorVariableKey с проверкой collectionKey; библиотека не меняется. При ошибке откатывает собственные изменения, сохраняет конфликтующие чужие. После unknown читать get_page_settings, не повторять запись.',
+  inputSchema: setPageSettingsInputSchema,
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+}, setPageSettingsSchema, buildSetPageSettingsCode);
 
 registerGeneratedTool("get_file_metadata", {
   title: "Прочитать метаданные файла",
