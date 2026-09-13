@@ -7,6 +7,7 @@ import {
   buildRenderCode,
   buildUseComponentCode,
 } from "../src/figma-code.mjs";
+import { normalizeScreenSpec, parseRenderScreenInput } from "../src/schemas.mjs";
 
 test('составной ID читается по точному ID внутри экземпляра без зависающего адресного lookup', async () => {
   const mock = createFigmaMock();
@@ -35,6 +36,48 @@ test("успешная сборка новой спеки не объявляе�
   assert.equal(result.verification.status, "not_checked");
   assert.equal(result.verification.scope, "source-fidelity");
   assert.equal(result.verification.pixelParityVerified, false);
+});
+
+test("render_screen явно возвращает цепочку размещения root → SECTION → PAGE", async () => {
+  const mock = createFigmaMock();
+  const result = await executeGenerated(mock.figma, buildRenderCode({
+    spec: { key: "placement", name: "Размещение", type: "screen", width: 360, height: 711, children: [] },
+    replace: false,
+  }));
+  const root = mock.nodes.get(result.rootId);
+  const section = mock.nodes.get(result.sectionId);
+  assert.deepEqual(result.placement, {
+    rootParentId: section.id,
+    sectionParentId: mock.page.id,
+    destinationParentId: mock.page.id,
+    wrapperType: "SECTION",
+  });
+  assert.equal(root.parent, section);
+  assert.equal(section.parent, mock.page);
+});
+
+test("dryRun и запись одинаково поддерживают координаты вариантов внутри свободного componentSet", async () => {
+  const input = parseRenderScreenInput({ spec: {
+    key: "screen", name: "Экран", type: "screen", width: 640, height: 480,
+    nodes: [
+      { key: "set", name: "Кнопка", type: "componentSet", layout: { direction: "none" } },
+      { key: "default", parentKey: "set", name: "Обычная", type: "component", variant: [{ property: "State", value: "Default" }], x: 12, y: 24 },
+      { key: "pressed", parentKey: "set", name: "Нажатая", type: "component", variant: [{ property: "State", value: "Pressed" }], x: 160, y: 24 },
+    ],
+  } });
+  const spec = normalizeScreenSpec(input.spec);
+  assert.deepEqual(await executeGenerated(createFigmaMock().figma, buildRenderCode({ spec, dryRun: true })), { ready: true });
+
+  const mock = createFigmaMock();
+  mock.figma.combineAsVariants = (components, parent) => {
+    const set = mock.make("COMPONENT_SET", {}, parent);
+    for (const component of components) set.appendChild(component);
+    return set;
+  };
+  const result = await executeGenerated(mock.figma, buildRenderCode({ spec }));
+  const set = mock.nodes.get(result.rootId).children[0];
+  assert.equal(set.type, "COMPONENT_SET");
+  assert.deepEqual(set.children.map(node => [node.x, node.y]), [[12, 24], [160, 24]]);
 });
 
 test("render_screen компилирует стабильные ключи и экранирует закрывающие теги", () => {

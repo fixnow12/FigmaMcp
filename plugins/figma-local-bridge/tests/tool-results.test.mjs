@@ -42,6 +42,9 @@ test("ошибки схемы возвращают читаемые пути п�
   assert.match(result.content[0].text, /Ещё полей с ошибками: 18/);
   assert.equal(result.content[0].text.includes("unionErrors"), false);
   assert.equal(result.content[0].text.includes('\\n'), false);
+  assert.equal(result.structuredContent.operationStatus, 'not_applied');
+  assert.equal(result.structuredContent.code, 'INVALID_ARGUMENTS');
+  assert.match(result.structuredContent.nextStep, /исправ/i);
 });
 
 test("ошибка снимка не превращает успешную запись в ошибку инструмента", async () => {
@@ -64,10 +67,12 @@ test("ошибка снимка не превращает успешную за�
 test('ошибка готовности сохраняет следующий шаг в MCP-ответе', () => {
   const response = toolFailure(Object.assign(new Error('Плагин не отвечает'), {
     code: 'PLUGIN_UNRESPONSIVE', operationStatus: 'not_applied', nextStep: 'Откройте целевой файл',
+    retryPolicy: 'after_state_change',
   }));
   assert.equal(response.isError, true);
   assert.equal(response.structuredContent.code, 'PLUGIN_UNRESPONSIVE');
   assert.equal(response.structuredContent.nextStep, 'Откройте целевой файл');
+  assert.equal(response.structuredContent.retryPolicy, 'after_state_change');
   assert.deepEqual(JSON.parse(response.content[0].text), response.structuredContent);
 });
 

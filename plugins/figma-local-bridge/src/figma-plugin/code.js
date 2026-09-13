@@ -627,6 +627,7 @@ figma.ui.onmessage = async (msg) => {
         rollbackErrors: error.rollbackErrors || [],
         code: error.code,
         nextStep: error.nextStep,
+        retryPolicy: error.retryPolicy,
         fileKey: error.fileKey,
         blockers: error.blockers
       });

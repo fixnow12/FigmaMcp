@@ -157,10 +157,11 @@ async function loadExactFont(font) {
       await waitForFontService(figma.loadFontAsync(font), font, "загрузка");
       return font;
     } catch (error) {
-      if (error.code === "FONT_SERVICE_TIMEOUT") throw error;
+      const initialTimeout = error.code === "FONT_SERVICE_TIMEOUT";
       checkOperation();
       // Accept spelling differences only, never substitute another weight/family.
       if (typeof figma.listAvailableFontsAsync !== "function") {
+        if (initialTimeout) throw error;
         throw fontLoadFailure(font, "Проверка списка доступных шрифтов не поддерживается; отсутствие шрифта не подтверждено.", error);
       }
       let fonts;
@@ -176,15 +177,19 @@ async function loadExactFont(font) {
       const matches = fonts.map(item => item.fontName).filter(item =>
         item.family === font.family && normalize(item.style) === normalize(font.style));
       if (matches.length === 1) {
-        if (matches[0].style === font.style) {
+        if (!initialTimeout && matches[0].style === font.style) {
           throw fontLoadFailure(font, "Шрифт есть в списке доступных Figma, но загрузить его не удалось.", error);
         }
         try {
-          await waitForFontService(figma.loadFontAsync(matches[0]), matches[0], "загрузка эквивалентного начертания");
+          const stage = initialTimeout ? "повторная загрузка после подтверждения каталога" : "загрузка эквивалентного начертания";
+          await waitForFontService(figma.loadFontAsync(matches[0]), matches[0], stage);
         } catch (aliasError) {
           if (aliasError.code === "FONT_SERVICE_TIMEOUT") throw aliasError;
           checkOperation();
-          throw fontLoadFailure(font, "Найдено эквивалентное начертание «" + matches[0].style + "», но его загрузка также не удалась.", aliasError);
+          const detail = initialTimeout
+            ? "Шрифт подтверждён каталогом, но единственная повторная загрузка также не удалась."
+            : "Найдено эквивалентное начертание «" + matches[0].style + "», но его загрузка также не удалась.";
+          throw fontLoadFailure(font, detail, aliasError);
         }
         return matches[0];
       }
@@ -380,13 +385,13 @@ async function prepareFonts(item, parent) {
   for (const child of item.children || []) await prepareFonts(child, item);
 }
 
-async function build(item, parent) {
+async function build(item, parent, buildOptions = {}) {
   checkOperation();
   if (item.type === "componentSet") {
     const components = [];
     for (const child of item.children || []) {
       if (child.type !== "component") throw new Error("Component set может содержать только component-варианты");
-      components.push(await build(child, parent));
+      components.push(await build(child, parent, { deferPosition: true }));
     }
     if (components.length < 2) throw new Error("Component set требует минимум два варианта");
     const set = figma.combineAsVariants(components, parent);
@@ -403,6 +408,9 @@ async function build(item, parent) {
     applyDimension(set, "width", item.width);
     applyDimension(set, "height", item.height);
     fidelity.position(set, item);
+    for (let index = 0; index < components.length; index++) {
+      fidelity.position(components[index], item.children[index]);
+    }
     return set;
   }
 
@@ -472,7 +480,7 @@ async function build(item, parent) {
 
   applyDimension(node, "width", item.width);
   applyDimension(node, "height", item.height);
-  fidelity.position(node, item);
+  if (!buildOptions.deferPosition) fidelity.position(node, item);
   return node;
 }
 
@@ -514,6 +522,12 @@ try {
   const result = {
     rootId: root.id,
     sectionId: createdSection.id,
+    placement: {
+      rootParentId: root.parent?.id || null,
+      sectionParentId: createdSection.parent?.id || null,
+      destinationParentId: operationPage.id,
+      wrapperType: "SECTION",
+    },
     key: spec.key,
     nodeCount: root.findAll().length + 1,
     verification: {

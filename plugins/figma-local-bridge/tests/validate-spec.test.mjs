@@ -28,6 +28,7 @@ for (const scenario of ['valid', 'nested', 'typo', 'cycle']) test(`offline valid
   assert.equal(report.valid, scenario === 'valid');
   assert.equal(report.fonts, 'not_checked');
   if (scenario === 'valid') {
+    assert.equal(report.layout, 'static_checked');
     assert.deepEqual(report.geometryWarnings, []);
     assert.equal(report.geometryWarningCount, 0);
     assert.equal(report.geometryWarningsTruncated, false);
@@ -80,6 +81,26 @@ test('offline validation treats omitted layout as the renderer default auto layo
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(result.stdout);
   assert.deepEqual(report.geometryWarnings, []);
+});
+
+test('offline validation rejects x/y that render_screen would reject before writing', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'figma-spec-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const input = {
+    key: 'auto-position', name: 'Автораскладка с координатами', type: 'screen', width: 400, height: 300,
+    nodes: [
+      { key: 'child', name: 'Дочерний фрейм', type: 'frame', x: 20, y: 30 },
+    ],
+  };
+  const path = join(directory, 'input.json');
+  await writeFile(path, JSON.stringify(input));
+
+  const result = spawnSync(process.execPath, [script, path], { encoding: 'utf8', timeout: 5000 });
+
+  assert.equal(result.status, 1, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.valid, false);
+  assert.match(report.errors[0].message, /x\/y.*layout\.direction.*layoutPositioning/);
 });
 
 test('offline validation warns when wrapped text may be clipped by its container', async t => {

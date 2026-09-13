@@ -13,7 +13,7 @@ try {
     geometryWarnings: geometry.warnings,
     geometryWarningCount: geometry.totalWarnings,
     geometryWarningsTruncated: geometry.truncated,
-    fonts: 'not_checked', layout: 'not_checked', visual: 'not_checked',
+    fonts: 'not_checked', layout: 'static_checked', visual: 'not_checked',
     nextStep: geometry.totalWarnings
       ? 'Исправьте или явно проверьте предупреждения геометрии, затем выполните render_screen с dryRun:true в целевом fileKey.'
       : 'Проверьте render_screen с dryRun:true в целевом fileKey для проверки свойств, раскладки и шрифтов.' }, null, 2));

@@ -366,6 +366,18 @@ export const screenSpecSchema = screenSpecBaseSchema.superRefine((spec, context)
       }
     }
 
+    const layoutParent = !node.parentKey || node.parentKey === spec.key
+      ? spec
+      : nodesByKey.get(node.parentKey);
+    if (layoutParent && (node.x !== undefined || node.y !== undefined) &&
+        layoutParent.layout?.direction !== "none" && node.layoutPositioning !== "ABSOLUTE") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `x/y требуют свободной раскладки: layout.direction: "none" у родителя ${layoutParent.key} либо layoutPositioning: "ABSOLUTE" у узла ${node.key}`,
+        path: ["nodes", index],
+      });
+    }
+
     const visited = new Set([node.key]);
     let parent = parents.get(node.key);
     while (parent && parent !== spec.key) {

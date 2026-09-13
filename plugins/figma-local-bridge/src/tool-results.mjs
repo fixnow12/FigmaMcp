@@ -34,6 +34,11 @@ export function toolFailure(error, timing) {
   const validation = error?.name === "ZodError" && Array.isArray(error.issues);
   const payload = {
     error: validation ? validationMessage(error.issues) : error instanceof Error ? error.message : String(error),
+    ...(validation ? {
+      operationStatus: 'not_applied',
+      code: 'INVALID_ARGUMENTS',
+      nextStep: 'Исправьте перечисленные параметры и повторите вызов. Команда не отправлялась в Figma.',
+    } : {}),
     ...errorDetails(error),
     ...(timing ? { timings: timing.snapshot() } : {}),
   };

@@ -104,6 +104,7 @@ test('полный установленный UI: auto auth → FILE_INFO → к
   clockOffset = 0;
   executionFailure = { code: 'FONT_LOAD_TIMEOUT', operationStatus: 'not_applied',
     nextStep: 'Проверьте доступность шрифта', fileKey: 'ui-file',
+    retryPolicy: 'after_state_change',
     blockers: [{ type: 'font', family: 'Factor IO', style: 'Bold' }], rollbackErrors: [] };
   await assert.rejects(client.execute('preflight'), error => {
     for (const [key, value] of Object.entries(executionFailure)) assert.deepEqual(error[key], value);

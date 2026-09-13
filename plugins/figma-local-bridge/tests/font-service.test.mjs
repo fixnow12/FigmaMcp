@@ -41,7 +41,9 @@ for (const operation of ['patch', 'move', 'reconstruction']) test(`${operation}:
     })]), error => {
       assert.equal(error.code, 'FONT_SERVICE_TIMEOUT');
       assert.equal(error.operationStatus, 'not_applied');
+      assert.equal(error.retryPolicy, 'after_state_change');
       assert.match(error.message, /Factor IO.*Bold/);
+      assert.match(error.nextStep, /не повторяйте неизменённый запрос/i);
       return true;
     });
     assert.equal(timers.size, 0, 'служба очищает свой таймер при завершении');

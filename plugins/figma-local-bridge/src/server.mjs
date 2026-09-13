@@ -336,7 +336,7 @@ registerGeneratedTool("move_nodes", {
 
 registerGeneratedTool("find_assets", {
   title: "Найти элементы и ресурсы",
-  description: "Ищет по имени nodes/components на странице или во всём файле, локальные styles/variables и метаданные доступных библиотечных коллекций/переменных. Возвращает ID, ключи, свойства и страницы результатов. Не импортирует ресурсы; внешний каталог компонентов недоступен через Plugin API.",
+  description: "Ищет по имени nodes/components на странице или во всём файле, локальные styles/variables и метаданные доступных библиотечных коллекций/переменных. Для библиотечных переменных используйте два шага: сначала kind=library_collections, затем передайте полученный collectionKey в kind=library_variables. Возвращает ID, ключи, свойства и страницы результатов. Не импортирует ресурсы; внешний каталог компонентов недоступен через Plugin API.",
   inputSchema: findAssetsInputSchema,
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
 }, findAssetsSchema, buildFindAssetsCode, { mutating: false });

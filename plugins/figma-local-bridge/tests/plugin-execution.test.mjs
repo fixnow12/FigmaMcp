@@ -70,6 +70,7 @@ test('ошибка preflight сохраняет структурированну
   const mock = createFigmaMock();
   const details = { operationStatus: 'not_applied', code: 'FONT_LOAD_TIMEOUT',
     nextStep: 'Проверьте доступность шрифта', fileKey: 'guide',
+    retryPolicy: 'after_state_change',
     blockers: [{ type: 'font', family: 'Factor IO', style: 'Bold' }], rollbackErrors: [] };
   const handler = await executionHandler(mock.figma, { details });
   await handler.run('preflight', 'throw Object.assign(new Error("Шрифт недоступен"), details);');
@@ -143,6 +144,69 @@ for (const stage of ['load', 'list']) test(`зависание службы шр
     await operation;
   }
   assert.equal(mock.figma.currentPage.children.length, 0, 'late font completion cannot resume the abandoned render');
+});
+
+test('холодный точный шрифт получает один безопасный повтор после подтверждения каталога', async () => {
+  const mock = createFigmaMock();
+  const requested = { family: 'Factor IO', style: 'Bold' };
+  let exactLoads = 0;
+  let listings = 0;
+  mock.figma.loadFontAsync = async font => {
+    if (font.family === requested.family && font.style === requested.style) {
+      exactLoads++;
+      if (exactLoads === 1) return new Promise(() => {});
+    }
+  };
+  mock.figma.listAvailableFontsAsync = async () => {
+    listings++;
+    return [{ fontName: requested }];
+  };
+  const handler = await executionHandler(mock.figma, {
+    setTimeout: (fn, ms) => setTimeout(fn, ms === 8000 ? 5 : ms),
+  });
+  const spec = normalizeScreenSpec({ key: 'cover', name: 'Обложка', type: 'screen', width: 1440, height: 900,
+    nodes: [{ type: 'text', key: 'title', name: 'Название', content: 'Layouts & Grid', fontFamily: requested.family, fontStyle: requested.style }] });
+
+  await handler.run('font-recovery', buildRenderCode({ spec, dryRun: true }), 1000);
+
+  const response = handler.messages.find(message => message.requestId === 'font-recovery' && message.type === 'EXECUTE_CODE_RESULT');
+  assert.equal(response.success, true);
+  assert.equal(response.result.ready, true);
+  assert.equal(exactLoads, 2);
+  assert.equal(listings, 1);
+  assert.equal(mock.figma.currentPage.children.length, 0);
+});
+
+test('повтор точного шрифта ограничен одной попыткой и сохраняет запрет неизменённого retry', async () => {
+  const mock = createFigmaMock();
+  const requested = { family: 'Factor IO', style: 'Bold' };
+  let exactLoads = 0;
+  let listings = 0;
+  mock.figma.loadFontAsync = async font => {
+    if (font.family === requested.family && font.style === requested.style) {
+      exactLoads++;
+      return new Promise(() => {});
+    }
+  };
+  mock.figma.listAvailableFontsAsync = async () => {
+    listings++;
+    return [{ fontName: requested }];
+  };
+  const handler = await executionHandler(mock.figma, {
+    setTimeout: (fn, ms) => setTimeout(fn, ms === 8000 ? 5 : ms),
+  });
+  const spec = normalizeScreenSpec({ key: 'cover', name: 'Обложка', type: 'screen', width: 1440, height: 900,
+    nodes: [{ type: 'text', key: 'title', name: 'Название', content: 'Layouts & Grid', fontFamily: requested.family, fontStyle: requested.style }] });
+
+  await handler.run('font-retry-limit', buildRenderCode({ spec, dryRun: true }), 1000);
+
+  const response = handler.messages.find(message => message.requestId === 'font-retry-limit' && message.type === 'EXECUTE_CODE_RESULT');
+  assert.equal(response.success, false);
+  assert.equal(response.operationStatus, 'not_applied');
+  assert.equal(response.retryPolicy, 'after_state_change');
+  assert.equal(exactLoads, 2);
+  assert.equal(listings, 1);
+  assert.equal(mock.figma.currentPage.children.length, 0);
 });
 
 for (const kind of ['library_collections', 'library_variables', 'variables', 'styles', 'node']) {

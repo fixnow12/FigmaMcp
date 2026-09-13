@@ -76,6 +76,49 @@ test("циклическая иерархия запрещена", () => {
   assert.equal(result.success, false);
 });
 
+test("координаты запрещены у обычного Auto Layout и разрешены в свободной раскладке", () => {
+  const base = {
+    key: "screen",
+    name: "Screen",
+    type: "screen",
+    width: 100,
+    height: 100,
+    nodes: [
+      { key: "child", name: "Child", type: "frame", x: 10, y: 20 },
+    ],
+  };
+
+  const invalid = screenSpecSchema.safeParse(base);
+  assert.equal(invalid.success, false);
+  assert.match(invalid.error.issues[0].message, /x\/y.*layout\.direction.*layoutPositioning/);
+
+  assert.equal(screenSpecSchema.safeParse({
+    ...base,
+    layout: { direction: "none" },
+  }).success, true);
+  assert.equal(screenSpecSchema.safeParse({
+    ...base,
+    nodes: [{ ...base.nodes[0], layoutPositioning: "ABSOLUTE" }],
+  }).success, true);
+
+  const nested = {
+    ...base,
+    nodes: [
+      { key: "parent", name: "Parent", type: "frame" },
+      { key: "child", parentKey: "parent", name: "Child", type: "frame", x: 10, y: 20 },
+    ],
+  };
+  assert.equal(screenSpecSchema.safeParse(nested).success, false);
+  assert.equal(screenSpecSchema.safeParse({
+    ...nested,
+    nodes: [{ ...nested.nodes[0], layout: { direction: "none" } }, nested.nodes[1]],
+  }).success, true);
+  assert.equal(screenSpecSchema.safeParse({
+    ...nested,
+    nodes: [nested.nodes[0], { ...nested.nodes[1], layoutPositioning: "ABSOLUTE" }],
+  }).success, true);
+});
+
 test("токены разрешаются, а component set, image и svg проходят нормализацию", () => {
   const normalized = normalizeScreenSpec({
     key: "advanced",

@@ -55,11 +55,12 @@ export const moveNodesSchema = z.object(moveNodesInputSchema).strict().refine(
 );
 
 export const findAssetsInputSchema = {
-  kind: z.enum(["nodes", "components", "styles", "variables", "library_collections", "library_variables"]),
+  kind: z.enum(["nodes", "components", "styles", "variables", "library_collections", "library_variables"])
+    .describe("Тип ресурса. Для library_variables сначала запросите library_collections и возьмите collectionKey из результата."),
   query: z.string().max(240).optional(),
   scope: z.enum(["page", "file"]).optional(),
   types: z.array(z.enum(["FRAME", "SECTION", "GROUP", "TEXT", "RECTANGLE", "ELLIPSE", "VECTOR", "INSTANCE", "COMPONENT", "COMPONENT_SET"])).min(1).max(10).optional(),
-  collectionKey: id().optional(),
+  collectionKey: id().optional().describe("Обязателен для kind=library_variables; получите его отдельным вызовом kind=library_collections."),
   offset: z.number().int().nonnegative().optional(),
   limit: z.number().int().min(1).max(200).optional(),
   fileKey: id().optional().describe(fileKeyDescription),

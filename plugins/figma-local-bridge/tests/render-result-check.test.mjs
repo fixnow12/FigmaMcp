@@ -51,13 +51,18 @@ test('does not silently reuse duplicate keys or omit extra keyed nodes', () => {
   assert.equal(checkRenderResult(f).automated.status, 'mismatch');
 });
 
-test('does not compare Auto Layout positions or auto-resized text height to authored coordinates', () => {
+test('rejects authored Auto Layout positions and does not compare auto-resized text height', () => {
+  const invalid = fixture(); invalid.renderArgs.spec.layout.direction = 'vertical';
+  assert.throws(() => checkRenderResult(invalid), /x\/y.*свободной раскладки/);
+
   const f = fixture(); f.renderArgs.spec.layout.direction = 'vertical';
+  delete f.renderArgs.spec.nodes[0].x;
+  delete f.renderArgs.spec.nodes[0].y;
   f.renderArgs.spec.nodes[0].textAutoResize = 'HEIGHT';
   const n = f.readback.result.selection[0].children[0]; n.textAutoResize = 'HEIGHT'; n.bounds.x = 0; n.bounds.y = 0; n.bounds.height = 64;
   const r = checkRenderResult(f);
   assert.equal(r.automated.status, 'matched');
-  for (const field of ['x', 'y', 'height']) assert.ok(r.unchecked.some(x => x.key === 'title' && x.field === field));
+  assert.ok(r.unchecked.some(x => x.key === 'title' && x.field === 'height'));
 });
 
 test('missing actual numeric properties never compare equal through NaN', () => {

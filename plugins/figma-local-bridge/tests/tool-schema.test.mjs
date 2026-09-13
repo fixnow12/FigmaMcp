@@ -117,6 +117,13 @@ test("MCP публикует типизированные схемы без unkn
     const assets = tools.find((tool) => tool.name === "find_assets");
     assert.equal(assets.annotations.readOnlyHint, true);
     assert.ok(assets.inputSchema.properties.kind.enum.includes("variables"));
+    assert.match(assets.description, /library_collections.*collectionKey.*library_variables/s);
+    assert.match(assets.inputSchema.properties.collectionKey.description, /обязател.*library_variables/i);
+    const invalidLibraryVariables = await client.callTool({ name: "find_assets", arguments: { kind: "library_variables" } });
+    assert.equal(invalidLibraryVariables.isError, true);
+    assert.equal(invalidLibraryVariables.structuredContent.operationStatus, "not_applied");
+    assert.equal(invalidLibraryVariables.structuredContent.code, "INVALID_ARGUMENTS");
+    assert.match(invalidLibraryVariables.structuredContent.error, /collectionKey/);
     const bindings = tools.find((tool) => tool.name === "bind_variables");
     assert.equal(bindings.inputSchema.properties.bindings.items.properties.nodeId.type, "string");
     assert.equal(bindings.inputSchema.properties.allowComponentChanges.type, "boolean");
