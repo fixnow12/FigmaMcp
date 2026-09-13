@@ -33,7 +33,10 @@ export async function startBroker({ directory = installationDirectory(), port = 
   }
   function maintenanceStatus() {
     const full = status();
-    if (isRuntimeCurrent()) return full;
+    let runtimeCurrent = false;
+    try { runtimeCurrent = isRuntimeCurrent(); }
+    catch { /* A moved or removed source directory means this broker is stale. */ }
+    if (runtimeCurrent) return full;
     const busy = activeOperations > 0 || queues.size > 0 || uncertainFiles.size > 0;
     if (!busy && !restarting) {
       restarting = true;

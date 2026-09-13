@@ -160,6 +160,15 @@ test('устаревший broker откладывает обновление д
   assert.equal(calls.length, 1);
 });
 
+test('ошибка чтения ревизии после переноса каталога запускает восстановление broker', async t => {
+  const { clients: [client] } = await fixture(t, {
+    isRuntimeCurrent: () => { throw Object.assign(new Error('source directory moved'), { code: 'ENOENT' }); },
+  });
+  const status = await client.call('status');
+  assert.equal(status.maintenance?.state, 'restarting');
+  assert.deepEqual(status.maintenance.uncertainFiles, []);
+});
+
 test('тот же MCP восстанавливает защищённое соединение после перезапуска broker', async t => {
   const { clients: [client], broker } = await fixture(t);
   const port = broker.bridge.port;
