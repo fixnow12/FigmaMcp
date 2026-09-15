@@ -5,17 +5,18 @@ import { randomUUID } from 'node:crypto';
 import { remoteError } from './bridge-errors.mjs';
 import channel from './secure-channel.cjs';
 import { installationDirectory, loadInstallation, identityFor } from './installation.mjs';
+import { HANDSHAKE_MAX_PAYLOAD, SECURE_MAX_PAYLOAD, allowAuthenticatedPayload } from './websocket-limits.mjs';
 
 export function connectSecure(port, identity, { timeout = 2000, onMessage = () => {}, onClose = () => {} } = {}) {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}`, { maxPayload: 250 * 1024 * 1024 });
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, { maxPayload: HANDSHAKE_MAX_PAYLOAD, perMessageDeflate: false });
     let ready = false;
     let transportClosed = false;
     const timer = setTimeout(() => { ws.terminate(); reject(Object.assign(new Error('Bridge authentication timeout'), { code: 'BRIDGE_AUTH_TIMEOUT' })); }, timeout);
     const secure = channel.create({
       side: 'client', identity, port,
       send: message => ws.send(JSON.stringify(message)),
-      onReady: () => { clearTimeout(timer); ready = true; resolve({ ws, secure }); },
+      onReady: () => { allowAuthenticatedPayload(ws, SECURE_MAX_PAYLOAD); clearTimeout(timer); ready = true; resolve({ ws, secure }); },
       onMessage,
       onError: error => {
         if (transportClosed) return; // secure.close() reports normal teardown too.
@@ -26,7 +27,7 @@ export function connectSecure(port, identity, { timeout = 2000, onMessage = () =
       },
     });
     ws.on('message', raw => { try { secure.receive(JSON.parse(String(raw))); } catch { ws.close(4400, 'Invalid message'); } });
-    ws.on('error', error => { clearTimeout(timer); reject(error); });
+    ws.on('error', error => { clearTimeout(timer); reject(error); ws.terminate(); });
     ws.on('close', code => {
       transportClosed = true;
       clearTimeout(timer);

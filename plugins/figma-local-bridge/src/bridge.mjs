@@ -4,6 +4,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import secureChannel from './secure-channel.cjs';
 import { remoteError } from './bridge-errors.mjs';
 import { runtimeInfo } from './runtime-info.mjs';
+import { HANDSHAKE_MAX_PAYLOAD, SECURE_MAX_PAYLOAD, LEGACY_MAX_PAYLOAD, MAX_PENDING_AUTHENTICATIONS, allowAuthenticatedPayload } from './websocket-limits.mjs';
 
 const DEFAULT_HOST = process.env.FIGMA_WS_HOST || "127.0.0.1";
 const DEFAULT_PORT = Number(process.env.FIGMA_WS_PORT || 9223);
@@ -53,6 +54,7 @@ export class LocalFigmaWebSocketServer {
     this.heartbeat = null;
     this.authToken = resolveAuthToken(authToken);
     this.authStates = new WeakMap();
+    this.pendingAuthentications = new Set();
     this.identity = identity;
     this.onMcpConnection = onMcpConnection;
   }
@@ -90,8 +92,13 @@ export class LocalFigmaWebSocketServer {
     this.httpServer = createHttpServer((request, response) => this.handleHttpRequest(request, response));
     this.wss = new WebSocketServer({
       server: this.httpServer,
-      maxPayload: (this.identity ? 250 : 100) * 1024 * 1024,
-      verifyClient: ({ origin }, accept) => isAllowedOrigin(origin) ? accept(true) : accept(false, 403, "Unauthorized Origin"),
+      maxPayload: HANDSHAKE_MAX_PAYLOAD,
+      perMessageDeflate: false,
+      verifyClient: ({ origin }, accept) => {
+        if (!isAllowedOrigin(origin)) return accept(false, 403, 'Unauthorized Origin');
+        if (this.pendingAuthentications.size >= MAX_PENDING_AUTHENTICATIONS) return accept(false, 503, 'Authentication capacity reached');
+        accept(true);
+      },
     });
     // ws повторно публикует ошибки общего HTTP-сервера. Постоянный обработчик
     // не даёт второму событию EADDRINUSE завершить процесс после отклонения start().
@@ -137,10 +144,21 @@ export class LocalFigmaWebSocketServer {
   }
 
   handleConnection(ws) {
-    if (this.identity) return this.handleSecureConnection(ws);
+    // Install before either protocol branch: receiver errors precede message.
+    ws.on('error', () => ws.terminate());
+    this.pendingAuthentications.add(ws);
+    const timer = setTimeout(() => ws.terminate(), 5000);
+    timer.unref?.();
+    const release = () => { clearTimeout(timer); this.pendingAuthentications.delete(ws); };
+    ws.once('close', release);
+    const authenticate = () => {
+      allowAuthenticatedPayload(ws, this.identity ? SECURE_MAX_PAYLOAD : LEGACY_MAX_PAYLOAD);
+      release();
+    };
+    if (this.identity) return this.handleSecureConnection(ws, authenticate);
     ws.isAlive = true;
     const challenge = randomBytes(24).toString("base64url");
-    this.authStates.set(ws, { authenticated: false, challenge });
+    this.authStates.set(ws, { authenticated: false, challenge, authenticate });
     ws.on("pong", () => {
       ws.isAlive = true;
       const fileKey = this.socketKeys.get(ws);
@@ -165,17 +183,15 @@ export class LocalFigmaWebSocketServer {
     }));
   }
 
-  handleSecureConnection(ws) {
+  handleSecureConnection(ws, authenticate) {
     ws.isAlive = true;
     const rawSend = ws.send.bind(ws);
     let role, mcp;
-    const timer = setTimeout(() => ws.close(4408, 'Authentication timeout'), 5000);
-    timer.unref?.();
     const secure = secureChannel.create({
       side: 'server', identity: this.identity, port: this.port,
       send: message => rawSend(JSON.stringify(message)),
       onReady: peerRole => {
-        clearTimeout(timer);
+        authenticate();
         role = peerRole;
         if (role === 'plugin') this.authStates.set(ws, { authenticated: true });
         else if (role === 'mcp') mcp = this.onMcpConnection?.(ws);
@@ -191,16 +207,13 @@ export class LocalFigmaWebSocketServer {
     ws.send = value => secure.send(JSON.parse(String(value)));
     ws.on('pong', () => { ws.isAlive = true; });
     ws.on('message', raw => {
-      if (!secure.ready && raw.length > 4096) { ws.close(4400, 'Invalid handshake size'); return; }
       try { secure.receive(JSON.parse(String(raw))); } catch { ws.close(4400, 'Invalid message'); }
     });
     ws.on('close', () => {
-      clearTimeout(timer);
       secure.close();
       if (role === 'plugin') this.handleDisconnect(ws);
       mcp?.close();
     });
-    ws.on('error', () => {});
     secure.start();
   }
 
@@ -219,6 +232,7 @@ export class LocalFigmaWebSocketServer {
         ws.close(4403, "Authentication failed");
         return;
       }
+      authState.authenticate();
       authState.authenticated = true;
       ws.send(JSON.stringify({
         type: "AUTH_OK",
