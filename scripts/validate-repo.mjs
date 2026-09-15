@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { findSensitiveIdentifiers } from './sensitive-data.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const jsonFiles = [
@@ -66,6 +67,9 @@ async function scan(directory) {
     // Figma installation). Inspect regular source files, never follow symlinks.
     if (!entry.isFile() || binaryExtensions.has(extname(entry.name).toLowerCase())) continue;
     const content = await readFile(path, 'utf8');
+    for (const finding of findSensitiveIdentifiers(content)) {
+      findings.push(`${path}:${finding.line}: ${finding.rule}`);
+    }
     if (content.includes('C:\\Codex\\Figma')) findings.push(`${path}: абсолютный путь рабочей машины`);
     if (content.includes('[TO' + 'DO')) findings.push(`${path}: незаполненный TODO`);
     for (const pattern of secretPatterns) {
