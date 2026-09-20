@@ -57,6 +57,8 @@ export function fidelityFields() {
 
 export function textFidelityFields() {
   return {
+    listOptions: z.object({ type: z.enum(["NONE", "ORDERED", "UNORDERED"]) }).strict().optional(),
+    listSpacing: z.number().nonnegative().optional(), indentation: z.number().int().nonnegative().optional(),
     textAutoResize: z.enum(["NONE", "HEIGHT", "WIDTH_AND_HEIGHT", "TRUNCATE"]).optional(),
     textAlignVertical: z.enum(["TOP", "CENTER", "BOTTOM"]).optional(),
     paragraphSpacing: z.number().nonnegative().optional(), paragraphIndent: z.number().nonnegative().optional(),
@@ -66,7 +68,42 @@ export function textFidelityFields() {
 // Serialized with the compiler; only documented, allowlisted properties are assigned.
 export function createFidelityRuntime(figma) {
   const fields = ["isMask", "maskType", "topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius", "cornerSmoothing", "strokeAlign", "strokeTopWeight", "strokeBottomWeight", "strokeLeftWeight", "strokeRightWeight", "dashPattern", "blendMode", "rotation", "layoutPositioning", "constraints", "minWidth", "maxWidth", "minHeight", "maxHeight"];
+  const geometry = { vectorPaths: ["VECTOR"], booleanOperation: ["BOOLEAN_OPERATION"], pointCount: ["POLYGON", "STAR"], strokeCap: ["VECTOR", "LINE"], strokeJoin: ["VECTOR", "LINE"] };
+  function insideInstance(node) { for (let p = node.parent; p; p = p.parent) if (p.type === "INSTANCE") return true; return false; }
+  const immutableInstanceFields = ["isMask", "maskType", "x", "y", "rotation", "layoutPositioning", "constraints", "minWidth", "maxWidth", "minHeight", "maxHeight"];
+  function sameValue(a, b) {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object" || Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a) && a.length !== b.length) return false;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every(key => Object.prototype.hasOwnProperty.call(b, key) && sameValue(a[key], b[key]));
+}
+  const same = sameValue;
+  function samePaints(a, b) {
+    // Figma returns an empty binding map for unbound paints; omitted input has
+    // the same meaning. Preserve every nonempty alias and all other fields.
+    function withoutEmptyBindings(value) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+      const copy = { ...value };
+      if (copy.boundVariables && typeof copy.boundVariables === "object" && !Array.isArray(copy.boundVariables) && !Object.keys(copy.boundVariables).length) delete copy.boundVariables;
+      return copy;
+    }
+    const normalize = value => Array.isArray(value) ? value.map(paint => {
+      const copy = withoutEmptyBindings(paint);
+      if (copy && Array.isArray(copy.gradientStops)) copy.gradientStops = copy.gradientStops.map(withoutEmptyBindings);
+      return copy;
+    }) : value;
+    return same(normalize(a), normalize(b));
+  }
   async function validate(item, node) {
+    if (node && insideInstance(node)) for (const field of immutableInstanceFields) {
+      if (item[field] !== undefined && !same(node[field], item[field])) throw new Error("Нельзя менять " + field + " внутри экземпляра: " + node.id);
+    }
+    for (const [field, types] of Object.entries(geometry)) if (item[field] !== undefined) {
+      const type = node?.type || ({line:"LINE",vector:"VECTOR",polygon:"POLYGON",star:"STAR",booleanOperation:"BOOLEAN_OPERATION"})[item.type];
+      if (!types.includes(type)) throw new Error(field + " не поддерживается типом " + type);
+      if (node && insideInstance(node) && !same(node[field], item[field])) throw new Error("Нельзя менять " + field + " внутри экземпляра: " + node.id);
+    }
     for (const field of [...fields, "fills", "strokes", "fillStyleId", "strokeStyleId"]) {
       if (node && item[field] !== undefined && !(field in node)) throw new Error("Узел не поддерживает " + field + ": " + node.name);
     }
@@ -79,15 +116,16 @@ export function createFidelityRuntime(figma) {
   }
   async function apply(node, item) {
     await validate(item, node);
-    for (const field of ["fillStyleId", "strokeStyleId"]) if (item[field] !== undefined) await node["set" + field[0].toUpperCase() + field.slice(1) + "Async"](item[field]);
-    for (const field of ["fills", "strokes", ...fields]) if (item[field] !== undefined) node[field] = item[field];
-    if (node.type === "TEXT") for (const run of item.textRuns || []) if (run.fills !== undefined) node.setRangeFills(run.start, run.end, run.fills);
+    for (const field of ["fillStyleId", "strokeStyleId"]) if (item[field] !== undefined && !same(node[field], item[field])) await node["set" + field[0].toUpperCase() + field.slice(1) + "Async"](item[field]);
+    for (const field of Object.keys(geometry)) if (item[field] !== undefined && !same(node[field], item[field])) node[field] = item[field];
+    for (const field of ["fills", "strokes", ...fields]) if (item[field] !== undefined && !(["fills", "strokes"].includes(field) ? samePaints : same)(node[field], item[field])) node[field] = item[field];
+    if (node.type === "TEXT") for (const run of item.textRuns || []) if (run.fills !== undefined && !samePaints(node.getRangeFills(run.start, run.end), run.fills)) node.setRangeFills(run.start, run.end, run.fills);
   }
   function position(node, item) {
-    if (item.x === undefined && item.y === undefined) return;
+    if ((item.x === undefined || same(node.x, item.x)) && (item.y === undefined || same(node.y, item.y))) return;
     if (node.parent?.layoutMode && node.parent.layoutMode !== "NONE" && node.layoutPositioning !== "ABSOLUTE") throw new Error("x/y требуют свободной раскладки или layoutPositioning: ABSOLUTE: " + node.name);
-    if (item.x !== undefined) node.x = item.x;
-    if (item.y !== undefined) node.y = item.y;
+    if (item.x !== undefined && !same(node.x, item.x)) node.x = item.x;
+    if (item.y !== undefined && !same(node.y, item.y)) node.y = item.y;
   }
-  return { validate, apply, position };
+  return { validate, apply, position, samePaints };
 }

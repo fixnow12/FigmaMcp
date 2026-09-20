@@ -34,7 +34,7 @@ export const recreateScreenInputSchema = {
 const geometry = new Set(["VECTOR", "BOOLEAN_OPERATION", "STAR", "POLYGON"]);
 const containers = new Set(["FRAME", "GROUP", "INSTANCE", "COMPONENT", "COMPONENT_SET"]);
 const fields = Object.keys(fidelityFields()).filter(k => !["fillStyleId", "strokeStyleId", "x", "y"].includes(k));
-const textFields = ["content", "fontFamily", "fontStyle", "fontSize", "lineHeight", "letterSpacing", "textAlign", "textAutoResize", "textAlignVertical", "textCase", "textDecoration", "paragraphSpacing", "paragraphIndent", "textRuns"];
+const textFields = ["content", "fontFamily", "fontStyle", "fontSize", "lineHeight", "letterSpacing", "textAlign", "textAutoResize", "textAlignVertical", "textCase", "textDecoration", "paragraphSpacing", "paragraphIndent", "listOptions", "listSpacing", "indentation", "textRuns"];
 
 // Recreate the currently resolved appearance, without inheriting a library mode
 // from a different parent or creating new library definitions.

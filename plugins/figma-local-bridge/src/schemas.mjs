@@ -35,8 +35,11 @@ const concretePadding = z.union([z.number().nonnegative(), concretePaddingObject
 
 // Fresh schemas keep the MCP public description free of shared $ref objects.
 const effectSchema = () => z.object({
-  type: z.enum(["DROP_SHADOW", "INNER_SHADOW", "LAYER_BLUR", "BACKGROUND_BLUR"]),
+  type: z.enum(["DROP_SHADOW", "INNER_SHADOW", "LAYER_BLUR", "BACKGROUND_BLUR", "GLASS"]),
   radius: z.number().nonnegative(),
+  refraction: z.number().min(0).max(1).optional(), depth: z.number().min(1).optional(),
+  lightAngle: z.number().finite().optional(), lightIntensity: z.number().min(0).max(1).optional(),
+  dispersion: z.number().min(0).max(1).optional(), splay: z.number().finite().optional(),
   color: z.union([
     z.string().regex(/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/),
     z.object({ r: z.number().min(0).max(1), g: z.number().min(0).max(1), b: z.number().min(0).max(1), a: z.number().min(0).max(1) }).strict(),
@@ -48,6 +51,11 @@ const effectSchema = () => z.object({
   showShadowBehindNode: z.boolean().optional(),
   boundVariables: z.record(z.object({ type: z.literal("VARIABLE_ALIAS"), id: z.string().min(1) }).strict()).optional(),
 }).strict().superRefine((value, ctx) => {
+  const glassFields = ["refraction", "depth", "lightAngle", "lightIntensity", "dispersion", "splay"];
+  if (value.type === "GLASS") {
+    for (const field of glassFields.filter(f => f !== "splay")) if (value[field] === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message: "GLASS требует " + field });
+    if (value.boundVariables && Object.keys(value.boundVariables).length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "GLASS не поддерживает boundVariables" });
+  } else if (glassFields.some(f => value[f] !== undefined)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Параметры стекла допустимы только для GLASS" });
   if (value.type.endsWith("SHADOW")) {
     if (!value.color) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["color"], message: "Для тени нужен color" });
     if (!value.offset) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["offset"], message: "Для тени нужен offset" });
@@ -136,7 +144,10 @@ const containerFields = {
 };
 
 export const designNodeSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("vector"), ...common, vectorPaths: vectorPathsSchema(), strokeWidth: nonnegativeValue.optional(), cornerRadius: nonnegativeValue.optional(), strokeCap: z.enum(["NONE", "ROUND", "SQUARE", "ARROW_LINES", "ARROW_EQUILATERAL", "DIAMOND_FILLED", "TRIANGLE_FILLED", "CIRCLE_FILLED"]).optional(), strokeJoin: z.enum(["MITER", "BEVEL", "ROUND"]).optional() }).strict(),
+  z.object({ type: z.literal("polygon"), ...common, pointCount: z.number().int().min(3).max(60).optional() }).strict(),
+  z.object({ type: z.literal("star"), ...common, pointCount: z.number().int().min(3).max(60).optional() }).strict(),
+  z.object({ type: z.literal("booleanOperation"), ...common, booleanOperation: z.enum(["UNION", "INTERSECT", "SUBTRACT", "EXCLUDE"]) }).strict(),
+  z.object({ type: z.literal("vector"), ...common, height: z.union([dimension, z.literal(0)]).optional(), vectorPaths: vectorPathsSchema(), strokeWidth: nonnegativeValue.optional(), cornerRadius: nonnegativeValue.optional(), strokeCap: z.enum(["NONE", "ROUND", "SQUARE", "ARROW_LINES", "ARROW_EQUILATERAL", "DIAMOND_FILLED", "TRIANGLE_FILLED", "CIRCLE_FILLED"]).optional(), strokeJoin: z.enum(["MITER", "BEVEL", "ROUND"]).optional() }).strict(),
   z.object({ type: z.literal("line"), ...common, width: nonnegativeValue.optional(), height: z.literal(0).optional(), strokeWidth: nonnegativeValue.optional(), strokeCap: z.enum(["NONE", "ROUND", "SQUARE", "ARROW_LINES", "ARROW_EQUILATERAL", "DIAMOND_FILLED", "TRIANGLE_FILLED", "CIRCLE_FILLED"]).optional(), strokeJoin: z.enum(["MITER", "BEVEL", "ROUND"]).optional() }).strict(),
   z.object({ type: z.literal("frame"), ...containerFields }).strict(),
   z.object({ type: z.literal("component"), ...containerFields, variant: z.record(z.string()).optional() }).strict(),
@@ -266,8 +277,10 @@ const publicLayout = () => z.object({
 
 export const publicDesignNodeSchema = z.object({
   ...fidelityFields(),
-  type: z.enum(["frame", "component", "componentSet", "text", "rectangle", "ellipse", "image", "svg", "line", "vector"]),
+  type: z.enum(["frame", "component", "componentSet", "text", "rectangle", "ellipse", "image", "svg", "line", "vector", "polygon", "star", "booleanOperation"]),
   vectorPaths: vectorPathsSchema().optional(),
+  booleanOperation: z.enum(["UNION", "INTERSECT", "SUBTRACT", "EXCLUDE"]).optional(),
+  pointCount: z.number().int().min(3).max(60).optional(),
   key: z.string().min(1).max(160),
   parentKey: z.string().min(1).max(160).optional(),
   order: z.number().int().nonnegative().optional(),
@@ -350,7 +363,7 @@ export const screenSpecSchema = screenSpecBaseSchema.superRefine((spec, context)
 
     if (node.parentKey && node.parentKey !== spec.key) {
       const parent = nodesByKey.get(node.parentKey);
-      if (parent && !["frame", "component", "componentSet"].includes(parent.type)) {
+      if (parent && !["frame", "component", "componentSet", "booleanOperation"].includes(parent.type)) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
           message: `Узел ${parent.key} типа ${parent.type} не может содержать дочерние узлы`,
@@ -370,7 +383,7 @@ export const screenSpecSchema = screenSpecBaseSchema.superRefine((spec, context)
       ? spec
       : nodesByKey.get(node.parentKey);
     if (layoutParent && (node.x !== undefined || node.y !== undefined) &&
-        layoutParent.layout?.direction !== "none" && node.layoutPositioning !== "ABSOLUTE") {
+        layoutParent.type !== "booleanOperation" && layoutParent.layout?.direction !== "none" && node.layoutPositioning !== "ABSOLUTE") {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: `x/y требуют свободной раскладки: layout.direction: "none" у родителя ${layoutParent.key} либо layoutPositioning: "ABSOLUTE" у узла ${node.key}`,
@@ -395,6 +408,7 @@ export const screenSpecSchema = screenSpecBaseSchema.superRefine((spec, context)
   }
 
   for (const [index, node] of spec.nodes.entries()) {
+    if (node.type === "booleanOperation" && spec.nodes.filter(child => child.parentKey === node.key).length < 2) context.addIssue({ code: z.ZodIssueCode.custom, message: "booleanOperation требует минимум две фигуры", path: ["nodes", index] });
     if (node.type !== "componentSet") continue;
     const variants = spec.nodes.filter((candidate) => candidate.parentKey === node.key);
     if (variants.length < 2) {
@@ -454,7 +468,7 @@ export function normalizeScreenSpec(input) {
   const buildChildren = (parentKey) =>
     (byParent.get(parentKey) || []).map((node) => {
       const { parentKey: _parentKey, order: _order, ...rest } = node;
-      if (node.type === "frame" || node.type === "component" || node.type === "componentSet") {
+      if (node.type === "frame" || node.type === "component" || node.type === "componentSet" || node.type === "booleanOperation") {
         return { ...rest, children: buildChildren(node.key) };
       }
       return rest;
@@ -554,6 +568,12 @@ export function parseRenderScreenInput(input) {
 const patchSetSchema = z
   .object({
     ...fidelityFields(),
+    scaleFactor: z.number().finite().positive().optional().describe("Абсолютный нативный масштаб INSTANCE; rescale выполняется перед width/height. Отношение к текущему масштабу должно быть 0.01–100 для обратимого отката."),
+    vectorPaths: vectorPathsSchema().optional(),
+    strokeCap: z.enum(["NONE", "ROUND", "SQUARE", "ARROW_LINES", "ARROW_EQUILATERAL", "DIAMOND_FILLED", "TRIANGLE_FILLED", "CIRCLE_FILLED"]).optional(),
+    strokeJoin: z.enum(["MITER", "BEVEL", "ROUND"]).optional(),
+    booleanOperation: z.enum(["UNION", "INTERSECT", "SUBTRACT", "EXCLUDE"]).optional(),
+    pointCount: z.number().int().min(3).max(60).optional(),
     name: nameSchema.optional(),
     content: z.string().optional(),
     ...typographyFields("concrete"),
@@ -562,7 +582,7 @@ const patchSetSchema = z
     effects: z.array(effectSchema()).max(32).optional(),
     effectStyleId: z.string().optional(),
     width: concreteDimension.optional(),
-    height: concreteDimension.optional(),
+    height: z.union([concreteDimension, z.literal(0)]).optional(),
     x: z.number().optional(),
     y: z.number().optional(),
     visible: z.boolean().optional(),
@@ -631,7 +651,7 @@ export const patchNodesInputSchema = {
               });
             }
             const parent = byKey.get(node.parentKey);
-            if (parent && !["frame", "component", "componentSet"].includes(parent.type)) {
+            if (parent && !["frame", "component", "componentSet", "booleanOperation"].includes(parent.type)) {
               context.addIssue({ code: z.ZodIssueCode.custom, message: "Родитель append должен быть контейнером", path: ["append", index, "parentKey"] });
             }
             if (parent?.type === "componentSet" && node.type !== "component") {
@@ -647,6 +667,7 @@ export const patchNodesInputSchema = {
               visited.add(cursor);
               cursor = byKey.get(cursor).parentKey;
             }
+            if (node.type === "booleanOperation" && value.append.filter(child => child.parentKey === node.key).length < 2) context.addIssue({ code: z.ZodIssueCode.custom, message: "booleanOperation требует минимум две фигуры", path: ["append", index] });
             if (node.type === "componentSet" && value.append.filter((child) => child.parentKey === node.key).length < 2) {
               context.addIssue({ code: z.ZodIssueCode.custom, message: "Component set должен содержать минимум два варианта", path: ["append", index] });
             }

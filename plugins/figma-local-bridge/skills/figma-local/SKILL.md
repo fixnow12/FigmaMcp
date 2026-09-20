@@ -5,7 +5,7 @@ description: "Работа с открытым файлом Figma Desktop чер
 
 # Figma Local
 
-Используй только инструменты MCP-сервера `figma-local`: `get_status`, `inspect_selection`, `export_assets`, `patch_nodes`, `render_screen`, `recreate_screen`, `use_component`, `clone_nodes`, `move_nodes`, `find_assets`, `bind_variables`, `set_text_links`, `set_reactions`, `activate_page`, `get_file_metadata`, `set_file_metadata`, `get_page_settings`, `set_page_settings`, `capture_library_template` и `assemble_library_template`.
+Используй только инструменты MCP-сервера `figma-local`: `get_status`, `inspect_selection`, `export_assets`, `patch_nodes`, `render_screen`, `recreate_screen`, `use_component`, `clone_nodes`, `move_nodes`, `find_assets`, `bind_variables`, `set_text_links`, `set_reactions`, `activate_page`, `get_file_metadata`, `set_file_metadata`, `get_page_settings`, `set_page_settings`, `set_node_variable_modes`, `capture_library_template` и `assemble_library_template`.
 
 ## Общие правила
 
@@ -69,3 +69,13 @@ ID узла принадлежит конкретному файлу: всегд
 - Замена содержания текста со смешанным оформлением требует явных `textRuns` для нового текста; не заменяй смешанные шрифты/цвета одним значением без запроса пользователя.
 
 Формат экрана, токены и правила стабильных ключей описаны в [references/design-spec.md](references/design-spec.md). Для `render_screen` используй плоский `spec.nodes` и `parentKey`; каждую новую или изменённую `spec` для `render_screen` сохрани и проверь через `scripts/validate-spec.mjs` из корня плагина перед dryRun. Исправь или явно проверь каждый `geometryWarnings`: предупреждение не блокирует валидность спеки, но запрещает считать геометрию проверенной. Отправляй тот же проверенный JSON без ручной пересборки. Успех dryRun относится только к переданному пакету: шрифты последующих слайдов и полное чтение результата он не подтверждает. Если клиент не передал PNG модели либо модель не может его просмотреть, отметь визуальную проверку как `not-tested` и оставь результат черновиком.
+
+### Возможности guide-fidelity v2
+
+Новые lists/indentation, GLASS, свойства векторов и диапазонные переменные включайте только по свежему адресному `get_status`: нужны `diagnostics.ready`, `current.mcp/broker/plugin`, совпавший `capabilityFileKey` и нужная строка `diagnostics.capabilities`. Версия manifest сама по себе недостаточна. Полный контракт — раздел «Проверка точности guide-fidelity v2» в README.
+
+`bind_variables` принимает парные UTF-16 `start/end`, `fontFamily`, числовой `fontWeight`, `fontSize`, `lineHeight` и `fills`/`paintIndex`. Полный inspect возвращает `textSegments` и aliases. Внутри INSTANCE `vectorPaths`, `booleanOperation`, `pointCount` допускаются только при точном совпадении с текущим значением; реальные изменения блокируются без detach. GLASS `splay` сохранён из реального чтения, но требует отдельного сравнения результата. NAVIGATE сравнивает подтверждённые defaults (`resetScrollPosition:true`, `resetVideoPosition:false`), сохраняя явные различия. Клики в Present этим не проверены.
+
+Нативный масштаб INSTANCE сохраняйте отдельным `patch_nodes` с абсолютным `scaleFactor` по capability `instance-scale-v1`. Bridge выполняет rescale до resize и проверяет отношение 0.01–100; изменение вложенного INSTANCE запрещено. Сначала задайте масштаб корневого экземпляра, затем отдельным пакетом проверьте/примените потомков. `inspect_selection(detail:"full")` возвращает scaleFactor.
+
+`set_node_variable_modes` задаёт режим коллекции на точных FRAME/INSTANCE: `{fileKey, bindings:[{nodeId,collectionKey,anchorVariableKey,modeName}]}` (до 40). Получи ключи из исходного чтения/каталога и работай по capability `node-variable-modes-v1`. Ответ `variableModesVerification.checks` подтверждает collectionId/modeId и truthful `mutated`. Повторное чтение `inspect_selection` проверяет `explicitVariableModes`; значения переменных и определения компонентов операция не меняет.

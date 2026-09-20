@@ -16,6 +16,7 @@ import { buildFindAssetsCode } from "./asset-catalog.mjs";
 import { buildSetTextLinksCode, buildSetReactionsCode } from "./interactions.mjs";
 import { buildBindVariablesCode } from "./variable-bindings.mjs";
 import { buildActivatePageCode, buildGetFileMetadataCode, buildSetFileMetadataCode } from "./file-context.mjs";
+import { setNodeVariableModesInputSchema, setNodeVariableModesSchema, buildSetNodeVariableModesCode } from './node-variable-modes.mjs';
 import { getPageSettingsInputSchema, getPageSettingsSchema, setPageSettingsInputSchema, setPageSettingsSchema, buildGetPageSettingsCode, buildSetPageSettingsCode } from './page-settings.mjs';
 import { captureLibraryTemplateInputSchema, captureLibraryTemplateSchema, assembleLibraryTemplateInputSchema, assembleLibraryTemplateSchema, buildCaptureLibraryTemplateCode, buildAssembleLibraryTemplateCode } from './library-template.mjs';
 import { BrokerClient } from "./broker-client.mjs";
@@ -284,6 +285,13 @@ registerGeneratedTool('set_page_settings', {
   inputSchema: setPageSettingsInputSchema,
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
 }, setPageSettingsSchema, buildSetPageSettingsCode);
+
+registerGeneratedTool('set_node_variable_modes', {
+  title: 'Установить режимы переменных узлов',
+  description: 'Устанавливает явные режимы существующих Variables на точных FRAME/INSTANCE текущей страницы. До записи проверяет все узлы, anchorVariableKey, collectionKey, единственное modeName и шрифты потомков. До 40 привязок; определения компонентов и значения библиотек не меняет. Точный no-op не вызывает setter. При ошибке откатывает только свои режимы; ответ variableModesVerification содержит прочитанные collectionId/modeId. После unknown/partial сначала inspect_selection.',
+  inputSchema: setNodeVariableModesInputSchema,
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+}, setNodeVariableModesSchema, buildSetNodeVariableModesCode);
 
 registerGeneratedTool("get_file_metadata", {
   title: "Прочитать метаданные файла",

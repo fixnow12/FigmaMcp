@@ -35,7 +35,7 @@ test("MCP публикует типизированные схемы без unkn
     for (const tool of tools) checkArrays(tool.inputSchema, tool.name);
     assert.deepEqual(
       tools.map((tool) => tool.name).sort(),
-      ["activate_page", "assemble_library_template", "bind_variables", "capture_library_template", "clone_nodes", "export_assets", "find_assets", "get_file_metadata", "get_page_settings", "get_status", "inspect_selection", "move_nodes", "patch_nodes", "recreate_screen", "render_screen", "set_file_metadata", "set_page_settings", "set_reactions", "set_text_links", "use_component"],
+      ["activate_page", "assemble_library_template", "bind_variables", "capture_library_template", "clone_nodes", "export_assets", "find_assets", "get_file_metadata", "get_page_settings", "get_status", "inspect_selection", "move_nodes", "patch_nodes", "recreate_screen", "render_screen", "set_file_metadata", "set_node_variable_modes", "set_page_settings", "set_reactions", "set_text_links", "use_component"],
     );
 
     const activate = tools.find((tool) => tool.name === "activate_page");
@@ -78,7 +78,7 @@ test("MCP публикует типизированные схемы без unkn
     assert.equal(spec.properties.nodes.type, "array");
     assert.deepEqual(
       [...spec.properties.nodes.items.properties.type.enum].sort(),
-      ["component", "componentSet", "ellipse", "frame", "image", "line", "rectangle", "svg", "text", "vector"],
+      ["booleanOperation", "component", "componentSet", "ellipse", "frame", "image", "line", "polygon", "rectangle", "star", "svg", "text", "vector"],
     );
     assert.equal(spec.properties.tokens.type, "object");
     assert.equal(JSON.stringify(render.inputSchema).includes('"$ref"'), false);
@@ -124,6 +124,11 @@ test("MCP публикует типизированные схемы без unkn
     assert.equal(invalidLibraryVariables.structuredContent.operationStatus, "not_applied");
     assert.equal(invalidLibraryVariables.structuredContent.code, "INVALID_ARGUMENTS");
     assert.match(invalidLibraryVariables.structuredContent.error, /collectionKey/);
+    const nodeModes = tools.find(tool => tool.name === 'set_node_variable_modes');
+    assert.equal(nodeModes.annotations.idempotentHint, true);
+    assert.equal(nodeModes.inputSchema.properties.bindings.maxItems, 40);
+    assert.deepEqual(nodeModes.inputSchema.properties.bindings.items.required.sort(), ['anchorVariableKey', 'collectionKey', 'modeName', 'nodeId']);
+    assert.ok(nodeModes.inputSchema.required.includes('fileKey'));
     const bindings = tools.find((tool) => tool.name === "bind_variables");
     assert.equal(bindings.inputSchema.properties.bindings.items.properties.nodeId.type, "string");
     assert.equal(bindings.inputSchema.properties.allowComponentChanges.type, "boolean");

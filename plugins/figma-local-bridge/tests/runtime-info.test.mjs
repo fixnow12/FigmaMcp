@@ -15,6 +15,9 @@ test('READY учитывает живую занятость выбранног�
     { fileKey: 'busy', responsive: true, busy: true, activeOperation: { name: 'find_assets', mutating: false, elapsedMs: 60000 } },
   ] };
   assert.equal(runtimeDiagnostics(status, { fileKey: 'ready' }).ready, true);
+  assert.ok(runtimeDiagnostics(status, { fileKey: 'ready' }).capabilities.includes('node-variable-modes-v1'));
+  assert.deepEqual(runtimeDiagnostics(status, { fileKey: 'busy' }).capabilities, []);
+  assert.deepEqual(runtimeDiagnostics(status).capabilities, []);
   const diagnosis = runtimeDiagnostics(status, { fileKey: 'busy' });
   assert.equal(diagnosis.ready, false);
   assert.equal(diagnosis.state, 'PLUGIN_BUSY');

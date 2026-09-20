@@ -851,12 +851,38 @@
                   "DROP_SHADOW",
                   "INNER_SHADOW",
                   "LAYER_BLUR",
-                  "BACKGROUND_BLUR"
+                  "BACKGROUND_BLUR",
+                  "GLASS"
                 ]
               },
               "radius": {
                 "type": "number",
                 "minimum": 0
+              },
+              "refraction": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "depth": {
+                "type": "number",
+                "minimum": 1
+              },
+              "lightAngle": {
+                "type": "number"
+              },
+              "lightIntensity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "dispersion": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "splay": {
+                "type": "number"
               },
               "color": {
                 "anyOf": [
@@ -1971,7 +1997,10 @@
                   "image",
                   "svg",
                   "line",
-                  "vector"
+                  "vector",
+                  "polygon",
+                  "star",
+                  "booleanOperation"
                 ]
               },
               "vectorPaths": {
@@ -2001,6 +2030,20 @@
                 },
                 "minItems": 1,
                 "maxItems": 2000
+              },
+              "booleanOperation": {
+                "type": "string",
+                "enum": [
+                  "UNION",
+                  "INTERSECT",
+                  "SUBTRACT",
+                  "EXCLUDE"
+                ]
+              },
+              "pointCount": {
+                "type": "integer",
+                "minimum": 3,
+                "maximum": 60
               },
               "key": {
                 "type": "string",
@@ -2144,12 +2187,38 @@
                         "DROP_SHADOW",
                         "INNER_SHADOW",
                         "LAYER_BLUR",
-                        "BACKGROUND_BLUR"
+                        "BACKGROUND_BLUR",
+                        "GLASS"
                       ]
                     },
                     "radius": {
                       "type": "number",
                       "minimum": 0
+                    },
+                    "refraction": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "depth": {
+                      "type": "number",
+                      "minimum": 1
+                    },
+                    "lightAngle": {
+                      "type": "number"
+                    },
+                    "lightIntensity": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "dispersion": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "splay": {
+                      "type": "number"
                     },
                     "color": {
                       "anyOf": [
@@ -2574,6 +2643,31 @@
               "content": {
                 "type": "string"
               },
+              "listOptions": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "NONE",
+                      "ORDERED",
+                      "UNORDERED"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "additionalProperties": false
+              },
+              "listSpacing": {
+                "type": "number",
+                "minimum": 0
+              },
+              "indentation": {
+                "type": "integer",
+                "minimum": 0
+              },
               "textAutoResize": {
                 "type": "string",
                 "enum": [
@@ -2788,6 +2882,31 @@
                     "end": {
                       "type": "integer",
                       "exclusiveMinimum": 0
+                    },
+                    "listOptions": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "NONE",
+                            "ORDERED",
+                            "UNORDERED"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "listSpacing": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "indentation": {
+                      "type": "integer",
+                      "minimum": 0
                     },
                     "paragraphSpacing": {
                       "type": "number",

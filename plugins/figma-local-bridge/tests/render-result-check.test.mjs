@@ -132,3 +132,20 @@ test('CLI never overwrites spec, read-back, symlinks or an existing report', asy
   const r = spawnSync(process.execPath, [cli, '--spec', spec, '--read', read, '--root-id', f.rootId, '--output', output], { encoding: 'utf8' });
   assert.equal(r.status, 0); assert.equal(JSON.parse(await readFile(output, 'utf8')).automated.status, 'matched');
 });
+
+test('checks glass and list properties exactly from full readback',()=>{
+ const f=fixture(),e=f.renderArgs.spec.nodes[0],n=f.readback.result.selection[0].children[0];
+ e.listOptions={type:'ORDERED'};e.indentation=2;e.listSpacing=8;
+ Object.assign(n,{listOptions:{type:'ORDERED'},indentation:2,listSpacing:8});
+ const glass={type:'GLASS',visible:true,radius:20,refraction:0.24,depth:2,lightAngle:-45,lightIntensity:0.8,dispersion:0,splay:0};
+ f.renderArgs.spec.effects=[glass];f.readback.result.selection[0].effects=[structuredClone(glass)];
+ let r=checkRenderResult(f);assert.equal(r.automated.status,'matched');assert.ok(r.automated.checked.some(x=>x.field==='listOptions'));
+ n.indentation=3;f.readback.result.selection[0].effects[0].splay=1;r=checkRenderResult(f);assert.ok(r.automated.differences.some(x=>x.field==='indentation'));assert.ok(r.automated.differences.some(x=>x.field==='effects'));
+});
+test('checks provided run properties against every full text segment and detects missing coverage',()=>{
+ const f=fixture(),e=f.renderArgs.spec.nodes[0],n=f.readback.result.selection[0].children[0];e.textRuns=[{start:0,end:4,listOptions:{type:'ORDERED'},indentation:1}];
+ n.textSegments=[{start:0,end:2,listOptions:{type:'ORDERED'},indentation:1},{start:2,end:4,listOptions:{type:'ORDERED'},indentation:1}];
+ let r=checkRenderResult(f);assert.ok(!r.unchecked.some(x=>x.field==='textRuns'));
+ n.textSegments[1].indentation=2;r=checkRenderResult(f);assert.ok(r.automated.differences.some(x=>x.field.includes('indentation')));
+ n.textSegments.pop();r=checkRenderResult(f);assert.ok(r.automated.differences.some(x=>x.field.includes('coverage')));
+});
