@@ -43,7 +43,7 @@ if (-not $SkipCodex) {
     Write-Host 'Регистрирую marketplace и плагин Codex...'
     & codex plugin marketplace add $RepoRoot --json
     if ($LASTEXITCODE -ne 0) { throw 'Не удалось зарегистрировать marketplace Codex.' }
-    & codex plugin add 'figma-local-bridge@figma-mcp' --json
+    & codex plugin add 'figma-local-bridge@figma-local' --json
     if ($LASTEXITCODE -ne 0) { throw 'Не удалось установить или обновить плагин Codex.' }
     & node (Join-Path $PluginRoot 'scripts\verify-codex-install.mjs')
     if ($LASTEXITCODE -ne 0) { throw 'Проверка установленной копии MCP завершилась с ошибкой.' }

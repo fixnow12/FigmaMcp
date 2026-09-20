@@ -19,7 +19,7 @@ for (const relativePath of jsonFiles) {
 }
 
 const marketplace = JSON.parse(await readFile(resolve(root, '.agents/plugins/marketplace.json'), 'utf8'));
-assert.equal(marketplace.name, 'figma-mcp');
+assert.equal(marketplace.name, 'figma-local');
 assert.equal(marketplace.plugins[0].name, 'figma-local-bridge');
 await stat(resolve(root, marketplace.plugins[0].source.path));
 

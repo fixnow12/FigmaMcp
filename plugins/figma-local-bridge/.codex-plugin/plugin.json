@@ -5,8 +5,8 @@
   "author": {
     "name": "fixnow12"
   },
-  "repository": "https://github.com/fixnow12/FigmaMcp",
-  "homepage": "https://github.com/fixnow12/FigmaMcp",
+  "repository": "https://github.com/fixnow12/figma-local",
+  "homepage": "https://github.com/fixnow12/figma-local",
   "license": "MIT",
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",

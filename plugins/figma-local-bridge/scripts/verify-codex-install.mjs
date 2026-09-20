@@ -12,7 +12,7 @@ export async function verifyCodexInstallation({ codexHome = process.env.CODEX_HO
   const manifest = JSON.parse(await readFile(join(sourceRoot, '.codex-plugin/plugin.json'), 'utf8'));
   assert.match(manifest.name, /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/);
   assert.match(manifest.version, /^[A-Za-z0-9.+_-]+$/);
-  const installedRoot = join(codexHome, 'plugins/cache/figma-mcp', manifest.name, manifest.version);
+  const installedRoot = join(codexHome, 'plugins/cache/figma-local', manifest.name, manifest.version);
   // An old installed entry is not proof that this source version was copied.
   async function compare(relativePath) {
     const [source, installed] = await Promise.all([

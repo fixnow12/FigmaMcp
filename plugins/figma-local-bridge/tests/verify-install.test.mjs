@@ -80,7 +80,7 @@ test('проверка OpenCode запускает MCP из opencode.json и п�
 test('проверка установленной версии обнаруживает устаревший кэш с той же версией', async t => {
   const codexHome = await temporary(t);
   const manifest = JSON.parse(await readFile(join(root, '.codex-plugin/plugin.json'), 'utf8'));
-  const cached = join(codexHome, 'plugins/cache/figma-mcp', manifest.name, manifest.version);
+  const cached = join(codexHome, 'plugins/cache/figma-local', manifest.name, manifest.version);
   await cp(root, cached, { recursive: true, filter: path => !path.includes('node_modules') });
   await writeFile(join(cached, '.mcp.json'), '{}');
   await assert.rejects(verifyCodexInstallation({ codexHome }), /Кэш Codex устарел: .mcp.json/);

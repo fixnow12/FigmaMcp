@@ -12,7 +12,7 @@ import { connectSecure } from '../src/broker-client.mjs';
 import { pluginRevision } from '../src/runtime-info.mjs';
 
 test('stdio MCP: два чата читают один файл, закрытие stdin завершает только свой MCP без SIGTERM', async t => {
-  const directory = await mkdtemp(join(tmpdir(), 'figma-mcp-'));
+  const directory = await mkdtemp(join(tmpdir(), 'figma-local-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   await prepareInstallation(directory);
   const data = await loadInstallation(directory);

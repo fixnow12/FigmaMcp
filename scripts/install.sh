@@ -27,7 +27,7 @@ if [ "${SKIP_CODEX:-0}" != "1" ]; then
   if command -v codex >/dev/null 2>&1; then
     printf '%s\n' 'Регистрирую marketplace и плагин Codex...'
     codex plugin marketplace add "$repo_root" --json
-    codex plugin add 'figma-local-bridge@figma-mcp' --json
+    codex plugin add 'figma-local-bridge@figma-local' --json
     node "$plugin_root/scripts/verify-codex-install.mjs"
   else
     printf '%s\n' 'Предупреждение: Codex не найден, установка плагина пропущена.' >&2

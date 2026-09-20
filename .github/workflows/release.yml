@@ -30,9 +30,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          git archive --format=zip --output="dist/FigmaMcp-${GITHUB_REF_NAME}.zip" HEAD
+          git archive --format=zip --output="dist/figma-local-${GITHUB_REF_NAME}.zip" HEAD
           cd dist
-          sha256sum "FigmaMcp-${GITHUB_REF_NAME}.zip" > "FigmaMcp-${GITHUB_REF_NAME}.zip.sha256"
+          sha256sum "figma-local-${GITHUB_REF_NAME}.zip" > "figma-local-${GITHUB_REF_NAME}.zip.sha256"
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

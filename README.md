@@ -82,7 +82,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
 
 ```bash
 codex plugin marketplace add .
-codex plugin add figma-local-bridge@figma-mcp
+codex plugin add figma-local-bridge@figma-local
 ```
 
 Затем перезапустите Codex и создайте новую задачу.
