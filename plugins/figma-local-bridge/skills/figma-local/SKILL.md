@@ -5,7 +5,7 @@ description: "Работа с открытым файлом Figma Desktop чер
 
 # Figma Local
 
-Используй только инструменты MCP-сервера `figma-local`: `get_status`, `inspect_selection`, `export_assets`, `patch_nodes`, `render_screen`, `recreate_screen`, `use_component`, `clone_nodes`, `move_nodes`, `find_assets`, `bind_variables`, `set_text_links`, `set_reactions`, `activate_page`, `get_file_metadata`, `set_file_metadata`, `get_page_settings`, `set_page_settings`, `set_node_variable_modes`, `capture_library_template` и `assemble_library_template`.
+Используй только инструменты MCP-сервера `figma-local`: `get_status`, `inspect_selection`, `export_assets`, `patch_nodes`, `render_screen`, `recreate_screen`, `use_component`, `clone_nodes`, `move_nodes`, `find_assets`, `import_variables`, `bind_variables`, `set_text_links`, `set_reactions`, `activate_page`, `get_file_metadata`, `set_file_metadata`, `get_page_settings`, `set_page_settings`, `set_node_variable_modes`, `capture_library_template` и `assemble_library_template`.
 
 ## Общие правила
 

@@ -22,7 +22,7 @@ Read-back первой сборки проверяет дерево, библи�
 
 ### Проверка точности guide-fidelity v2
 
-Кандидат `0.3.0+codex.20260919-fidelity-v2` расширяет существующие команды:
+Кандидат `0.3.0+codex.20260920-variable-import` расширяет существующие команды:
 
 - `render_screen` и `patch_nodes`: `listOptions: {type: "NONE" | "ORDERED" | "UNORDERED"}`, `listSpacing`, `indentation`, в том числе в `textRuns`. `listOptions` и `indentation` используют диапазонный API Figma; пустой текст не поддерживает такие диапазоны.
 - Эффект `GLASS`: `radius`, `refraction` (0–1), `depth` (от 1), `lightAngle`, `lightIntensity` (0–1), `dispersion` (0–1), необязательные `splay` и `visible`. `splay` сохранён по фактическому чтению Figma; публичные typings его ещё не описывают. Сохранение подтверждается живым read-back. GLASS не поддерживает переменные эффекта.
@@ -35,7 +35,7 @@ Read-back первой сборки проверяет дерево, библи�
 
 Блокировку старого Bridge можно снять только после свежего `get_status({fileKey})`: нужны `diagnostics.ready`, все три `diagnostics.current` и живой ответ Plugin API. `diagnostics.capabilityFileKey` равен назначению; `diagnostics.mcp.revision` совпадает с исходниками. `diagnostics.capabilities` перечисляет `text-lists-v1`, `glass-effects-v1`, `vector-properties-v1`, `text-range-variables-v1`, `navigate-scroll-default-v1`, `instance-scale-v1`. Без конкретного файла, живого ответа или при устаревшем runtime список пуст. Версия пакета сама по себе не подтверждает поддержку.
 
-Локальный MCP-кандидат: `node /Users/mkrivtsov/FigmaMcp/plugins/figma-local-bridge/src/server.mjs`, cwd корня плагина, существующий `FIGMA_LOCAL_STATE_DIR`. Завершите операции старого процесса, подключите новый и проверьте целевой fileKey. Персональная сборка — `npm run prepare:local`; перед обновлением рабочего каталога установки сохраните его копию. Проверки: `npm test`, `npm run schema:check`, `npm run verify`. Последняя проверяет новый MCP-каталог и не доказывает переключение уже открытого чата.
+Локальный MCP-кандидат: `node ./src/server.mjs`, cwd корня плагина, существующий `FIGMA_LOCAL_STATE_DIR`. Завершите операции старого процесса, подключите новый и проверьте целевой fileKey. Персональная сборка — `npm run prepare:local`; перед обновлением рабочего каталога установки сохраните его копию. Проверки: `npm test`, `npm run schema:check`, `npm run verify`. Последняя проверяет новый MCP-каталог и не доказывает переключение уже открытого чата.
 
 Внутри потомков INSTANCE свойства `isMask`, `maskType`, `x`, `y`, `rotation`, `layoutPositioning`, `constraints`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight` также принимаются только как точный no-op. Проверка ancestors начинается с parent, поэтому размещение корневого INSTANCE остаётся допустимым. No-op сравнение не зависит от порядка ключей объекта, но не игнорирует поля и не использует числовой допуск. При записи и откате совпавшие свойства и размеры не назначаются повторно.
 
@@ -44,3 +44,5 @@ Read-back первой сборки проверяет дерево, библи�
 При `layout.direction:"none"` сохраняются неактивные `gap`, padding и alignment: их можно задавать без включения Auto Layout. `wrap`, `counterAxisSpacing`, `strokesIncludedInLayout`, `itemReverseZIndex` в этом режиме допускаются только при точном совпадении с native значением. Недопустимое изменение отклоняется до первой записи patch-пакета.
 
 `set_node_variable_modes` задаёт явный режим коллекции на выбранных FRAME/INSTANCE без изменения библиотеки: обязательные `fileKey` и `bindings:[{nodeId,collectionKey,anchorVariableKey,modeName}]`, максимум 40. Capability `node-variable-modes-v1`; preflight проверяет цели, импорт, уникальное имя режима и шрифты потомков. Ответ содержит проверенные `variableModesVerification.checks`, при ошибке выполняется ограниченный откат собственных режимов.
+
+`import_variables` импортирует ссылки на библиотечные переменные в файл назначения: обязательные `fileKey` и `variables:[{key,resolvedType,collectionKey?}]`, до 100 уникальных ключей. Ответ `complete:true` подтверждает весь набор и содержит проверенные ID назначения, типы и коллекции. При частичной ошибке подтверждённые записи остаются в `blockers[0].evidence.variables`; импорт не откатывается удалением ресурсов. После тайм-аута сначала проверьте `get_status` того же файла и завершение активной операции. Значения переменных и исходная библиотека не изменяются.

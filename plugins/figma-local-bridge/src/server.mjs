@@ -1,3 +1,4 @@
+import {importVariablesInputSchema, importVariablesSchema, buildImportVariablesCode} from './import-variables.mjs';
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -285,6 +286,13 @@ registerGeneratedTool('set_page_settings', {
   inputSchema: setPageSettingsInputSchema,
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
 }, setPageSettingsSchema, buildSetPageSettingsCode);
+
+registerGeneratedTool('import_variables', {
+  title: 'Импортировать библиотечные переменные',
+  description: 'Импортирует до 100 переменных по точным key в заданный fileKey, проверяет resolvedType, необязательный collectionKey и читает фактические destination ID и режимы коллекций. Не меняет значения переменных, слои или исходные библиотеки. Импорт меняет кэш ресурсов файла; при частичной ошибке не удаляет импортированное. complete:true подтверждает весь набор. После тайм-аута сначала get_status этого файла; не повторять вслепую.',
+  inputSchema: importVariablesInputSchema,
+  annotations: {readOnlyHint:false, destructiveHint:false, idempotentHint:true},
+}, importVariablesSchema, buildImportVariablesCode);
 
 registerGeneratedTool('set_node_variable_modes', {
   title: 'Установить режимы переменных узлов',
