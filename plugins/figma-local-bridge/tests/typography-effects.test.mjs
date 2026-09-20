@@ -7,7 +7,7 @@ const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const execute = (code, figma) => new AsyncFunction("figma", code)(figma);
 const regular = { family: "Factor IO", style: "Regular" };
 const medium = { family: "Factor IO", style: "Medium" };
-const fields = ["fontName", "fontSize", "lineHeight", "letterSpacing", "textCase", "textDecoration", "textStyleId", "fills"];
+const fields = ["fontName", "fontSize", "lineHeight", "letterSpacing", "textCase", "textDecoration", "textStyleId", "fills", "listOptions", "listSpacing", "indentation"];
 
 // Execute the actual compiled Plugin API program, including font-load guards,
 // per-character styles, parenting and cleanup. No snapshot/string-only tests.
@@ -37,7 +37,7 @@ function fixture() {
     });
     if (type === "TEXT") {
       let content = "", chars = [];
-      const defaults = { fontName: { family: "Inter", style: "Regular" }, fontSize: 12, lineHeight: { unit: "AUTO" }, letterSpacing: { unit: "PIXELS", value: 0 }, textCase: "ORIGINAL", textDecoration: "NONE", textStyleId: "", fills: [] };
+      const defaults = { fontName: { family: "Inter", style: "Regular" }, fontSize: 12, lineHeight: { unit: "AUTO" }, letterSpacing: { unit: "PIXELS", value: 0 }, textCase: "ORIGINAL", textDecoration: "NONE", textStyleId: "", fills: [], listOptions: {type:"NONE"}, listSpacing:0, indentation:0 };
       const ensureLoaded = () => { for (const props of chars.length ? chars : [defaults]) assert.ok(loaded.has(JSON.stringify(props.fontName)), "font must be loaded before text mutation"); };
       for (const field of fields) {
         Object.defineProperty(node, field, { configurable: true, get() { const values = chars.length ? chars.map(c => c[field]) : [defaults[field]]; return values.every(v => JSON.stringify(v) === JSON.stringify(values[0])) ? values[0] : mixed; }, set(value) { ensureLoaded(); defaults[field] = value; chars.forEach(c => { c[field] = value; }); if (!["textStyleId", "fills"].includes(field)) { defaults.textStyleId = ""; chars.forEach(c => { c.textStyleId = ""; }); } } });
@@ -312,4 +312,28 @@ test("смешанные цвета textRuns сохраняются при rende
   await patch(figma, [{ key: "title", set: { textRuns: [{ start: 0, end: 2, fills: link }] } }]);
   const next = (await inspect(figma, rootId)).children[0];
   assert.deepEqual(next.textRuns[0].fills, link);
+});
+
+ test("v2 renders and patches list ranges with complete readback", async()=>{
+ const {figma}=fixture();const {rootId}=await render(figma,renderInput({listOptions:{type:"ORDERED"},listSpacing:8,indentation:1,textRuns:[{start:0,end:2,listOptions:{type:"UNORDERED"},indentation:2}]}));
+ let title=(await inspect(figma,rootId)).children[0];assert.equal(title.textRuns[0].listOptions.type,"UNORDERED");assert.equal(title.textRuns[0].indentation,2);
+ await patch(figma,[{id:title.id,set:{listOptions:{type:"NONE"},indentation:0}}]);title=(await inspect(figma,rootId)).children[0];assert.deepEqual(title.listOptions,{type:"NONE"});assert.equal(title.indentation,0);
+ });
+
+test('captured fills retain opacity after native GLASS side effects in render, append and patch', async () => {
+  const {figma,nodes}=fixture(),create=figma.createFrame;
+  const fills=[{type:'SOLID',visible:true,opacity:1,blendMode:'NORMAL',color:{r:0.9412000179290771,g:0.9412000179290771,b:0.980400025844574}}];
+  const glass={type:'GLASS',visible:true,radius:20,refraction:0.24,depth:2,lightAngle:-45,lightIntensity:0.8,dispersion:0,splay:0};
+  figma.createFrame=()=>{
+    const node=create();let effects=[];
+    Object.defineProperty(node,'effects',{get:()=>effects,set:value=>{effects=structuredClone(value);if(value.some(effect=>effect.type==='GLASS'))node.fills=node.fills.map(p=>({...p,opacity:0.2}));}});
+    return node;
+  };
+  const frame={key:'glass-child',name:'Glass',type:'frame',width:100,height:40,fills,effects:[glass]};
+  const result=await render(figma,{spec:{key:'glass-root',name:'Glass screen',type:'screen',width:320,height:240,fills,effects:[glass],nodes:[frame]}});
+  const root=nodes.get(result.rootId),child=root.children[0];
+  assert.deepEqual(root.fills,fills);assert.deepEqual(child.fills,fills);
+  await patch(figma,[{id:child.id,set:{fills,effects:[{...glass,depth:4}]}},{id:root.id,append:[{...frame,key:'glass-append'}]}]);
+  assert.deepEqual(child.fills,fills);assert.deepEqual(root.children[1].fills,fills);
+  assert.equal(child.effects[0].depth,4);
 });

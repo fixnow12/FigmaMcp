@@ -308,3 +308,17 @@ test("отмена после записи запускает откат нес�
   await assert.rejects(executeGenerated(mock.figma, "const executionControl = figma.executionControl;\n" + code), e => e.operationStatus === "rolled_back");
   assert.deepEqual(node.reactions, []);
 });
+
+test('NAVIGATE accepts only the confirmed resetScrollPosition default and explicit options',async()=>{
+ for(const requested of [undefined,false,true]) {
+  const m=createFigmaMock();const n=exportedHotspot(m);const original=n.setReactionsAsync;
+  n.setReactionsAsync=async function(value){await original.call(this,value);for(const r of this.reactions){for(const a of r.actions)if(a.navigation==='NAVIGATE')a.resetScrollPosition??=true;r.action=r.actions[0];}};
+  const item=structuredClone(exportedInput);if(requested!==undefined)item.reactions[0].actions[0].resetScrollPosition=requested;
+  await run(m,'reactions',{updates:[item]});assert.equal(n.reactions[0].actions[0].resetScrollPosition,requested??true);
+ }
+ for(const change of [{resetScrollPosition:false},{unexpectedDefault:false}]){
+  const m=createFigmaMock();const n=exportedHotspot(m);const original=n.setReactionsAsync;
+  n.setReactionsAsync=async function(value){await original.call(this,value);Object.assign(this.reactions[0].actions[0],change);};
+  await assert.rejects(run(m,'reactions',{updates:[exportedInput]}),e=>e.operationStatus==='partial');
+ }
+});

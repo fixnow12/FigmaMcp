@@ -44,7 +44,7 @@ export function checkRenderResult({ renderArgs, readback, rootId, tolerance = 0.
     if (!equal) differences.push({ key, field, expected, actual: actual ?? null });
   }
   const types = { screen: 'FRAME', frame: 'FRAME', component: 'COMPONENT', componentSet: 'COMPONENT_SET',
-    text: 'TEXT', rectangle: 'RECTANGLE', ellipse: 'ELLIPSE', line: 'LINE', vector: 'VECTOR' };
+    text: 'TEXT', rectangle: 'RECTANGLE', ellipse: 'ELLIPSE', line: 'LINE', vector: 'VECTOR', polygon: 'POLYGON', star: 'STAR', booleanOperation: 'BOOLEAN_OPERATION' };
   function visit(expected, parent) {
     expectedKeys.add(expected.key);
     if (expected.type === 'svg') svgKeys.add(expected.key);
@@ -91,6 +91,46 @@ export function checkRenderResult({ renderArgs, readback, rootId, tolerance = 0.
       else if (typeof expected[field] !== 'number') reason = 'Fill/Hug sizing needs layout verification';
       if (reason) unchecked.push({ key: expected.key, field, reason });
       else compare(expected.key, field, expected[field], actual.bounds?.[field], true);
+    }
+    for (const field of ['listOptions', 'listSpacing', 'indentation', 'vectorPaths', 'booleanOperation', 'pointCount']) {
+      handled.add(field);
+      if (expected[field] !== undefined) {
+        if (expected.textRuns?.some(run => run[field] !== undefined)) unchecked.push({ key: expected.key, field, reason: 'Base property has range overrides; inspect uncovered text separately' });
+        else compare(expected.key, field, expected[field], actual[field]);
+      }
+    }
+    handled.add('effects');
+    if (expected.effects !== undefined) {
+      const effects = expected.effects.map(effect => {
+        const value = { ...effect, visible: effect.visible ?? true };
+        if (effect.type.endsWith('SHADOW')) {
+          value.blendMode ??= 'NORMAL'; value.spread ??= 0;
+          if (typeof value.color === 'string') {
+            const hex = value.color.slice(1);
+            value.color = { r: parseInt(hex.slice(0, 2), 16) / 255, g: parseInt(hex.slice(2, 4), 16) / 255, b: parseInt(hex.slice(4, 6), 16) / 255, a: hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1 };
+          }
+        }
+        return value;
+      });
+      compare(expected.key, 'effects', effects, actual.effects);
+    }
+    if (expected.textRuns && Array.isArray(actual.textSegments)) {
+      handled.add('textRuns');
+      for (const [i, run] of expected.textRuns.entries()) {
+        const segments = actual.textSegments.filter(segment => segment.end > run.start && segment.start < run.end);
+        let cursor = run.start;
+        for (const segment of segments) {
+          if (segment.start > cursor || segment.end <= cursor) break;
+          cursor = Math.min(run.end, segment.end);
+        }
+        compare(expected.key, `textRuns[${i}].coverage`, run.end, cursor);
+        for (const segment of segments) for (const [field, value] of Object.entries(run)) {
+          if (['start', 'end'].includes(field)) continue;
+          const observed = field === 'fontFamily' ? segment.fontName?.family : ['fontStyle', 'fontWeight'].includes(field) ? segment.fontName?.style : segment[field];
+          const wanted = ['lineHeight', 'letterSpacing'].includes(field) ? typeof value === 'number' ? { unit: 'PIXELS', value } : value === 'AUTO' ? { unit: 'AUTO' } : value : value;
+          compare(expected.key, `textRuns[${i}].${field}@${segment.start}:${segment.end}`, wanted, observed);
+        }
+      }
     }
     for (const field of Object.keys(expected)) {
       if (!handled.has(field) && expected[field] !== undefined) unchecked.push({ key: expected.key, field, reason: 'Not included in this checker; inspect separately' });

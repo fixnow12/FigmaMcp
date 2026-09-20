@@ -2,6 +2,7 @@ import { createFontService } from "./font-service.mjs";
 import { createReadService } from "./read-service.mjs";
 import { createMutationSafety } from "./mutation-safety.mjs";
 import { createFidelityRuntime } from "./fidelity.mjs";
+import { applyExactParagraphRanges } from "./text-paragraphs.mjs";
 
 const DATA_KEY = "codex-spec-key";
 
@@ -37,6 +38,7 @@ function declaredSvgSize(svg) {
 
 const helpers = `
 const DATA_KEY = ${JSON.stringify(DATA_KEY)};
+const applyExactParagraphRanges = ${applyExactParagraphRanges.toString()};
 const declaredSvgSize = ${declaredSvgSize.toString()};
 const operationPage = figma.currentPage;
 const fidelity = (${createFidelityRuntime.toString()})(figma);
@@ -72,33 +74,40 @@ function paddingValues(value) {
   return { top: 0, right: 0, bottom: 0, left: 0, ...(value || {}) };
 }
 
+function setIfChanged(node, field, value) {
+  if (!(field === "fills" || field === "strokes" ? fidelity.samePaints : sameValue)(node[field], value)) node[field] = value;
+}
 function applyLayout(node, value) {
   if (!("layoutMode" in node)) return;
   const layout = value || { direction: "vertical", gap: 0, padding: 0 };
-  node.layoutMode = layout.direction === "none"
-    ? "NONE"
-    : layout.direction === "horizontal" ? "HORIZONTAL" : "VERTICAL";
-  if (node.layoutMode === "NONE") return;
+  setIfChanged(node, "layoutMode", layout.direction === "none" ? "NONE" : layout.direction === "horizontal" ? "HORIZONTAL" : "VERTICAL");
   const padding = paddingValues(layout.padding || 0);
-  node.paddingTop = padding.top;
-  node.paddingRight = padding.right;
-  node.paddingBottom = padding.bottom;
-  node.paddingLeft = padding.left;
-  node.itemSpacing = layout.gap || 0;
-  node.primaryAxisAlignItems = {
+  setIfChanged(node, "paddingTop", padding.top);
+  setIfChanged(node, "paddingRight", padding.right);
+  setIfChanged(node, "paddingBottom", padding.bottom);
+  setIfChanged(node, "paddingLeft", padding.left);
+  setIfChanged(node, "itemSpacing", layout.gap || 0);
+  setIfChanged(node, "primaryAxisAlignItems", {
     start: "MIN",
     center: "CENTER",
     end: "MAX",
     "space-between": "SPACE_BETWEEN",
-  }[layout.primaryAlign || "start"];
-  node.counterAxisAlignItems = {
+  }[layout.primaryAlign || "start"]);
+  setIfChanged(node, "counterAxisAlignItems", {
     start: "MIN",
     center: "CENTER",
     end: "MAX",
     baseline: "BASELINE",
-  }[layout.counterAlign || "start"];
-  if ("layoutWrap" in node) node.layoutWrap = layout.wrap ? "WRAP" : "NO_WRAP";
-  for (const field of ["counterAxisSpacing", "strokesIncludedInLayout", "itemReverseZIndex"]) if (layout[field] !== undefined) node[field] = layout[field];
+  }[layout.counterAlign || "start"]);
+  if (node.layoutMode === "NONE") {
+    // Native spacing/alignment remains editable while Auto Layout is disabled.
+    // These mode-dependent controls do not: accept only captured exact no-ops.
+    const inactive = { wrap: "layoutWrap", counterAxisSpacing: "counterAxisSpacing", strokesIncludedInLayout: "strokesIncludedInLayout", itemReverseZIndex: "itemReverseZIndex" };
+    for (const [field, property] of Object.entries(inactive)) if (layout[field] !== undefined && node[property] !== (field === "wrap" ? layout.wrap ? "WRAP" : "NO_WRAP" : layout[field])) throw new Error("Сначала включите Auto Layout: " + node.name + " (" + field + " отличается от текущего значения)");
+    return;
+  }
+  if ("layoutWrap" in node) setIfChanged(node, "layoutWrap", layout.wrap ? "WRAP" : "NO_WRAP");
+  for (const field of ["counterAxisSpacing", "strokesIncludedInLayout", "itemReverseZIndex"]) if (layout[field] !== undefined) setIfChanged(node, field, layout[field]);
 }
 
 function applyVisual(node, item) {
@@ -116,16 +125,18 @@ function applyDimension(node, axis, value) {
   if (value === undefined) return;
   const field = axis === "width" ? "layoutSizingHorizontal" : "layoutSizingVertical";
   if (value === "fill") {
-    if (field in node) node[field] = "FILL";
+    if (field in node) setIfChanged(node, field, "FILL");
     return;
   }
   if (value === "hug") {
-    if (field in node) node[field] = "HUG";
+    if (field in node) setIfChanged(node, field, "HUG");
     return;
   }
-  if (field in node) node[field] = "FIXED";
-  if (axis === "width") node.resize(value, node.height);
-  else node.resize(node.width, value);
+  if (field in node) setIfChanged(node, field, "FIXED");
+  if (node[axis] !== value) {
+    if (axis === "width") node.resize(value, node.height);
+    else node.resize(node.width, value);
+  }
 }
 
 function sizeSvg(node, item) {
@@ -204,7 +215,13 @@ function textMetric(value) {
   return value === "AUTO" ? { unit: "AUTO" } : value;
 }
 
-function sameValue(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+function sameValue(a, b) {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object" || Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a) && a.length !== b.length) return false;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every(key => Object.prototype.hasOwnProperty.call(b, key) && sameValue(a[key], b[key]));
+}
 
 async function styleFont(id) {
   if (!id) return null;
@@ -213,12 +230,16 @@ async function styleFont(id) {
   return loadExactFont(style.fontName);
 }
 
-const textFields = ["fontSize", "lineHeight", "letterSpacing", "textCase", "textDecoration", "paragraphSpacing", "paragraphIndent"];
-async function applyText(node, item, creating = false) {
+const textFields = ["fontSize", "lineHeight", "letterSpacing", "textCase", "textDecoration", "paragraphSpacing", "paragraphIndent", "listOptions", "listSpacing", "indentation"];
+async function applyText(node, item, creating = false, preflightOnly = false) {
   const requested = ["content", "fontFamily", "fontStyle", "fontWeight", "textStyleId", "textRuns", "textAlign", "textAlignVertical", "textAutoResize", "color", ...textFields];
   if (!creating && !requested.some(field => item[field] !== undefined)) return;
   if (node.type !== "TEXT") throw new Error("Типографика поддерживается только для TEXT: " + node.name);
   const content = item.content ?? node.characters;
+  for (const field of ["listOptions", "indentation", "listSpacing"]) if (item[field] !== undefined || item.textRuns?.some(r => r[field] !== undefined)) {
+    const suffix = field[0].toUpperCase() + field.slice(1);
+    if (!content.length || typeof node["setRange" + suffix] !== "function" || typeof node["getRange" + suffix] !== "function") throw new Error("Узел не поддерживает диапазоны " + field);
+  }
   const segments = node.characters.length ? node.getStyledTextSegments(["fontName"]) : [];
   const currentFonts = segments.length ? segments.map(segment => segment.fontName) : [node.fontName];
   for (const font of currentFonts) await loadExactFont(font);
@@ -253,6 +274,7 @@ async function applyText(node, item, creating = false) {
     preparedRuns.push({ run, font });
   }
 
+  if (preflightOnly) return;
   // All fonts and ranges are validated before changing the text.
   if (item.textStyleId !== undefined) await node.setTextStyleIdAsync(item.textStyleId);
   if ((creating && !item.textStyleId) || explicitFont) {
@@ -265,7 +287,8 @@ async function applyText(node, item, creating = false) {
   for (const field of textFields) {
     if (item[field] !== undefined) {
       const value = ["lineHeight", "letterSpacing"].includes(field) ? textMetric(item[field]) : item[field];
-      if (!sameValue(node[field], value)) node[field] = value;
+      if (["listOptions", "indentation"].includes(field)) node["setRange" + field[0].toUpperCase() + field.slice(1)](0, content.length, value);
+      else if (!sameValue(node[field], value)) node[field] = value;
     }
   }
   if (creating && !item.textStyleId && item.fontSize === undefined) node.fontSize = 14;
@@ -276,18 +299,19 @@ async function applyText(node, item, creating = false) {
   for (const { run, font } of preparedRuns) {
     if (run.textStyleId !== undefined) await node.setRangeTextStyleIdAsync(run.start, run.end, run.textStyleId);
     if (font && !sameValue(node.getRangeFontName(run.start, run.end), font)) node.setRangeFontName(run.start, run.end, font);
-    for (const field of textFields) if (run[field] !== undefined) {
+    for (const field of textFields) if (run[field] !== undefined && !["paragraphSpacing", "paragraphIndent"].includes(field)) {
       const method = "setRange" + field[0].toUpperCase() + field.slice(1);
       const value = ["lineHeight", "letterSpacing"].includes(field) ? textMetric(run[field]) : run[field];
       if (!sameValue(node["getRange" + field[0].toUpperCase() + field.slice(1)](run.start, run.end), value)) node[method](run.start, run.end, value);
     }
   }
+  await applyExactParagraphRanges(figma, node, runs);
 }
 
 async function applyEffects(node, item) {
   if (item.effects === undefined && item.effectStyleId === undefined) return;
   if (!("effects" in node)) throw new Error("Этот узел не поддерживает эффекты: " + node.name);
-  if (item.effectStyleId !== undefined) await node.setEffectStyleIdAsync(item.effectStyleId);
+  if (item.effectStyleId !== undefined && !sameValue(node.effectStyleId, item.effectStyleId)) await node.setEffectStyleIdAsync(item.effectStyleId);
   if (item.effects !== undefined) {
     const effects = item.effects.map(effect => {
     const value = { ...effect, visible: effect.visible ?? true };
@@ -341,7 +365,7 @@ const previousSelection = [...(operationPage.selection || [])];
 
 async function prepareFonts(item, parent) {
   if (parent && (item.x !== undefined || item.y !== undefined) &&
-      parent.layout?.direction !== "none" && item.layoutPositioning !== "ABSOLUTE") {
+      parent.type !== "booleanOperation" && parent.layout?.direction !== "none" && item.layoutPositioning !== "ABSOLUTE") {
     throw new Error("x/y требуют свободной раскладки родителя (layout.direction: none) или layoutPositioning: ABSOLUTE: " + item.name);
   }
   await fidelity.validate(item);
@@ -421,6 +445,12 @@ async function build(item, parent, buildOptions = {}) {
     parent.appendChild(node);
     await applyText(node, item, true);
     node.textAutoResize = item.textAutoResize ?? (item.width !== undefined && item.width !== "hug" ? "HEIGHT" : "WIDTH_AND_HEIGHT");
+  } else if (item.type === "polygon") {
+    node = figma.createPolygon();
+  } else if (item.type === "star") {
+    node = figma.createStar();
+  } else if (item.type === "booleanOperation") {
+    node = figma.createBooleanOperation();
   } else if (item.type === "rectangle") {
     node = figma.createRectangle();
   } else if (item.type === "line") {
@@ -585,6 +615,14 @@ if (missing.length && !ignoreMissing) {
   throw new Error("Не найдены узлы: " + missing.join(", "));
 }
 
+// A native scale affects the entire subtree. Overlapping patches would capture
+// pre-scale descendant snapshots and make reverse rollback order ambiguous.
+const isAncestor = (ancestor, node) => { for (let p = node; p; p = p.parent) if (p === ancestor) return true; return false; };
+for (const entry of resolved) {
+  if (!entry.node || entry.patch.set?.scaleFactor === undefined || entry.patch.set.scaleFactor === entry.node.scaleFactor) continue;
+  if (resolved.some(other => other !== entry && other.node && (isAncestor(entry.node, other.node) || isAncestor(other.node, entry.node)))) throw new Error("Масштабирование экземпляра и пересекающиеся patch требуют отдельных последовательных пакетов");
+}
+
 // Resolve capabilities and fonts for the entire batch before the first write.
 for (const { patch, node } of resolved) {
   if (!node) continue;
@@ -592,12 +630,19 @@ for (const { patch, node } of resolved) {
   while (page && page.type !== "PAGE") page = page.parent;
   if (page !== operationPage) throw new Error("Узел находится на другой странице: " + node.id);
   await fidelity.validate(patch.set || {}, node);
+  await applyText(node, patch.set || {}, false, true);
+  if (patch.set?.effectStyleId && (await figma.getStyleByIdAsync(patch.set.effectStyleId))?.type !== "EFFECT") throw new Error("Не найден стиль эффектов: " + patch.set.effectStyleId);
   prepared.push({ patch, node, snapshot: await safety.prepare(node, patch.set || {}, patch.append) });
   for (const item of patch.append || []) {
     await fidelity.validate(item);
     if (appendKeys.has(item.key) || findByKey(item.key)) throw new Error("Узел с ключом уже существует: " + item.key);
     appendKeys.add(item.key);
     if (item.type === "text") {
+      let previousEnd = 0;
+      for (const run of item.textRuns || []) {
+        if (run.start < previousEnd || run.end <= run.start || run.end > item.content.length) throw new Error("Диапазоны textRuns должны помещаться в текст: " + item.name);
+        previousEnd = run.end;
+      }
       const styleFontName = item.textStyleId ? await styleFont(item.textStyleId) : null;
       const base = styleFontName || { family: "Inter", style: "Regular" };
       const resolvedBase = await loadExactFont({
@@ -674,6 +719,12 @@ async function appendNode(item, parent, created) {
     parent.appendChild(node);
     await applyText(node, item, true);
     node.textAutoResize = item.textAutoResize ?? (item.width !== undefined && item.width !== "hug" ? "HEIGHT" : "WIDTH_AND_HEIGHT");
+  } else if (item.type === "polygon") {
+    node = figma.createPolygon();
+  } else if (item.type === "star") {
+    node = figma.createStar();
+  } else if (item.type === "booleanOperation") {
+    node = figma.createBooleanOperation();
   } else if (item.type === "rectangle") {
     node = figma.createRectangle();
   } else if (item.type === "ellipse") {
@@ -736,7 +787,8 @@ for (const { patch, node, snapshot } of prepared) {
   checkOperation();
   touched.push(snapshot);
   const value = patch.set || {};
-  if (value.name !== undefined) node.name = value.name;
+  snapshot.applyScale();
+  if (value.name !== undefined) setIfChanged(node, "name", value.name);
   await applyText(node, value);
   await applyEffects(node, value);
   if (value.layout !== undefined) {
@@ -750,29 +802,29 @@ for (const { patch, node, snapshot } of prepared) {
       ...value.layout,
     });
   }
-  if (value.visible !== undefined) node.visible = value.visible;
-  if (value.opacity !== undefined) node.opacity = value.opacity;
-  if (value.background !== undefined && "fills" in node) node.fills = [paint(value.background)];
-  if (value.color !== undefined && node.type === "TEXT") node.fills = [paint(value.color)];
-  if (value.stroke !== undefined && "strokes" in node) node.strokes = [paint(value.stroke)];
-  if (value.strokeWidth !== undefined && "strokeWeight" in node) node.strokeWeight = value.strokeWidth;
-  if (value.clipContent !== undefined && "clipsContent" in node) node.clipsContent = value.clipContent;
-  if (value.cornerRadius !== undefined && "cornerRadius" in node) node.cornerRadius = value.cornerRadius;
-  if (value.gap !== undefined && "itemSpacing" in node) node.itemSpacing = value.gap;
+  if (value.visible !== undefined) setIfChanged(node, "visible", value.visible);
+  if (value.opacity !== undefined) setIfChanged(node, "opacity", value.opacity);
+  if (value.background !== undefined && "fills" in node) setIfChanged(node, "fills", [paint(value.background)]);
+  if (value.color !== undefined && node.type === "TEXT") setIfChanged(node, "fills", [paint(value.color)]);
+  if (value.stroke !== undefined && "strokes" in node) setIfChanged(node, "strokes", [paint(value.stroke)]);
+  if (value.strokeWidth !== undefined && "strokeWeight" in node) setIfChanged(node, "strokeWeight", value.strokeWidth);
+  if (value.clipContent !== undefined && "clipsContent" in node) setIfChanged(node, "clipsContent", value.clipContent);
+  if (value.cornerRadius !== undefined && "cornerRadius" in node) setIfChanged(node, "cornerRadius", value.cornerRadius);
+  if (value.gap !== undefined && "itemSpacing" in node) setIfChanged(node, "itemSpacing", value.gap);
   if (value.padding !== undefined && "paddingTop" in node) {
     const p = paddingValues(value.padding);
-    node.paddingTop = p.top;
-    node.paddingRight = p.right;
-    node.paddingBottom = p.bottom;
-    node.paddingLeft = p.left;
+    setIfChanged(node, "paddingTop", p.top);
+    setIfChanged(node, "paddingRight", p.right);
+    setIfChanged(node, "paddingBottom", p.bottom);
+    setIfChanged(node, "paddingLeft", p.left);
   }
   if (value.componentProperties !== undefined) {
     if (node.type !== "INSTANCE") throw new Error("componentProperties поддерживается только для INSTANCE: " + node.name);
     node.setProperties(value.componentProperties);
   }
+  await fidelity.apply(node, value);
   applyDimension(node, "width", value.width);
   applyDimension(node, "height", value.height);
-  await fidelity.apply(node, value);
   fidelity.position(node, value);
 
   for (const root of nestAppendItems(patch.append || [])) {
@@ -843,7 +895,8 @@ function inspect(node, level) {
     item.content = node.characters;
     item.mixedTextProperties = [];
     for (const field of ["fontName", ...textFields, "textStyleId"]) {
-      const value = node[field];
+      const value = ["listOptions", "indentation"].includes(field) && node.characters.length && typeof node["getRange" + field[0].toUpperCase() + field.slice(1)] === "function"
+        ? node["getRange" + field[0].toUpperCase() + field.slice(1)](0, node.characters.length) : node[field];
       if (value === figma.mixed) item.mixedTextProperties.push(field);
       else if (field === "fontName") {
         item.fontFamily = value.family;
@@ -880,11 +933,12 @@ function inspect(node, level) {
     if ("componentPropertyReferences" in node) item.componentPropertyReferences = node.componentPropertyReferences;
     const serializable = (value) => value === figma.mixed ? "MIXED" : value;
     item.parentId = node.parent?.id || null;
-    for (const field of ["opacity", "fills", "strokes", "strokeWeight", "cornerRadius", "clipsContent", "effects", "fillStyleId", "strokeStyleId", "effectStyleId", "boundVariables", "explicitVariableModes", "layoutSizingHorizontal", "layoutSizingVertical", "layoutPositioning", "minWidth", "maxWidth", "minHeight", "maxHeight", "absoluteBoundingBox", "relativeTransform", "rotation", "constraints", "topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius", "cornerSmoothing", "strokeAlign", "strokeTopWeight", "strokeBottomWeight", "strokeLeftWeight", "strokeRightWeight", "dashPattern", "blendMode", "isMask", "maskType", "textAlignVertical", "paragraphSpacing", "paragraphIndent", "vectorPaths", "strokeCap", "strokeJoin"]) {
+    for (const field of ["opacity", "fills", "strokes", "strokeWeight", "cornerRadius", "clipsContent", "effects", "fillStyleId", "strokeStyleId", "effectStyleId", "boundVariables", "explicitVariableModes", "layoutSizingHorizontal", "layoutSizingVertical", "layoutPositioning", "minWidth", "maxWidth", "minHeight", "maxHeight", "absoluteBoundingBox", "relativeTransform", "rotation", "constraints", "topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius", "cornerSmoothing", "strokeAlign", "strokeTopWeight", "strokeBottomWeight", "strokeLeftWeight", "strokeRightWeight", "dashPattern", "blendMode", "isMask", "maskType", "textAlignVertical", "paragraphSpacing", "paragraphIndent", "vectorPaths", "booleanOperation", "pointCount", "strokeCap", "strokeJoin", "scaleFactor"]) {
       if (field in node) item[field] = serializable(node[field]);
     }
     if (node.isMask && ["BOOLEAN_OPERATION", "STAR", "POLYGON"].includes(node.type)) item.fillGeometry = node.fillGeometry;
     if (node.type === "TEXT") {
+      item.textSegments = node.getStyledTextSegments(["fontName", ...textFields, "fills", "textStyleId", "fillStyleId", "boundVariables"]);
       item.typography = {};
       for (const field of ["fontName", "fontSize", "lineHeight", "letterSpacing", "textAlignHorizontal", "textAutoResize", "textStyleId", "hasMissingFont"]) item.typography[field] = serializable(node[field]);
     }

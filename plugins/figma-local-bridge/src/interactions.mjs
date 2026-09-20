@@ -15,7 +15,12 @@ async function setInteractions(figma, input, access) {
   // must still reveal concurrent edits. Keep the requested write unchanged.
   const comparable = value => isText ? value : canonical(value).map(reaction => ({
     ...reaction,
-    actions: reaction.actions.map(action => action.type === "NODE" ? { resetVideoPosition: false, ...action } : action),
+    actions: reaction.actions.map(action => {
+      if (action.type !== "NODE") return action;
+      const { preserveScrollPosition, ...rest } = action;
+      return { resetVideoPosition: false, ...(action.navigation === "NAVIGATE" ? { resetScrollPosition: action.resetScrollPosition ?? (preserveScrollPosition === undefined ? true : !preserveScrollPosition) } : {}), ...rest,
+        ...(action.navigation !== "NAVIGATE" && preserveScrollPosition !== undefined ? { preserveScrollPosition } : {}) };
+    }),
   }));
   // Figma may also return both action and actions, with a different property order.
   const same = (a, b) => JSON.stringify(ordered(comparable(a))) === JSON.stringify(ordered(comparable(b)));

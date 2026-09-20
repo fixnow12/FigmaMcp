@@ -1,3 +1,4 @@
+import { applyExactParagraphRanges } from "./text-paragraphs.mjs";
 import { createMutationSafety } from "./mutation-safety.mjs";
 import { createFontService } from "./font-service.mjs";
 import { createReadService } from "./read-service.mjs";
@@ -71,6 +72,7 @@ export function compileOperation(operation, input, { mutationSafety = false, rea
     await fontService.wait(figma.loadFontAsync(font), font, "загрузка исходного шрифта");
     check();
   };
+  const applyExactParagraphRanges = ${applyExactParagraphRanges.toString()};
   const safety = ${mutationSafety ? `(${createMutationSafety.toString()})(figma, loadFont)` : "null"};
   const readService = (${createReadService.toString()})(figma, check);
   const access = (${createSceneAccess.toString()})(figma, check, loadFont, readService);

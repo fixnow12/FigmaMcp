@@ -75,8 +75,9 @@ export const findAssetsSchema = z.object(findAssetsInputSchema).strict().superRe
 export const bindVariablesInputSchema = {
   bindings: z.array(z.object({
     nodeId: id(),
-    field: z.enum(["fills", "strokes", "width", "height", "opacity", "visible", "itemSpacing", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius", "fontSize", "characters"]),
+    field: z.enum(["fills", "strokes", "width", "height", "opacity", "visible", "itemSpacing", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius", "fontSize", "fontFamily", "fontWeight", "lineHeight", "characters"]),
     variableId: id().nullable(),
+    start: z.number().int().nonnegative().optional(), end: z.number().int().positive().optional(),
     paintIndex: z.number().int().nonnegative().optional(),
   }).strict()).min(1).max(100),
   allowComponentChanges: z.boolean().optional(),
@@ -87,7 +88,10 @@ export const bindVariablesSchema = z.object(bindVariablesInputSchema).strict().s
   input.bindings.forEach((binding, index) => {
     const paint = ["fills", "strokes"].includes(binding.field);
     if (!paint && binding.paintIndex !== undefined) context.addIssue({ code: z.ZodIssueCode.custom, message: "paintIndex допустим только для fills/strokes", path: ["bindings", index] });
-    const key = JSON.stringify([binding.nodeId, binding.field, paint ? binding.paintIndex ?? 0 : null]);
+    const range = binding.start !== undefined || binding.end !== undefined;
+    if (range && (binding.start === undefined || binding.end === undefined || binding.start >= binding.end || !["fontFamily", "fontWeight", "fontSize", "lineHeight", "fills"].includes(binding.field))) context.addIssue({ code: z.ZodIssueCode.custom, message: "start/end требуют непустой текстовый диапазон поддерживаемого поля", path: ["bindings", index] });
+    if (input.bindings.slice(0, index).some(previous => previous.nodeId === binding.nodeId && previous.field === binding.field && (!paint || (previous.paintIndex ?? 0) === (binding.paintIndex ?? 0)) && (previous.start ?? 0) < (binding.end ?? Infinity) && (binding.start ?? 0) < (previous.end ?? Infinity))) context.addIssue({ code: z.ZodIssueCode.custom, message: "Пересекающиеся цели привязок", path: ["bindings", index] });
+    const key = JSON.stringify([binding.nodeId, binding.field, paint ? binding.paintIndex ?? 0 : null, binding.start, binding.end]);
     if (targets.has(key)) context.addIssue({ code: z.ZodIssueCode.custom, message: "Повторяющаяся цель привязки", path: ["bindings", index] });
     targets.add(key);
   });
@@ -128,7 +132,7 @@ const prototypeAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("URL"), url: linkUrl() }).strict(),
   z.object({
     type: z.literal("NODE"), navigation: z.enum(["NAVIGATE", "OVERLAY", "SCROLL_TO"]), destinationId: id(),
-    transition: transition.nullable().optional(), preserveScrollPosition: z.boolean().optional(),
+    transition: transition.nullable().optional(), preserveScrollPosition: z.boolean().optional(), resetScrollPosition: z.boolean().optional(), resetVideoPosition: z.boolean().optional(),
   }).strict(),
 ]);
 const reaction = z.object({
@@ -152,6 +156,8 @@ export const setReactionsSchema = z.object(setReactionsInputSchema).strict().sup
     if (new Set(item.reactions.map(r => r.trigger.type)).size !== item.reactions.length) issue("Типы триггеров одного узла не должны повторяться");
     for (const r of item.reactions) for (const action of r.actions) {
       if (action.navigation === "SCROLL_TO" && action.transition) issue("SCROLL_TO в этой версии поддерживает только мгновенный переход");
+      if (action.resetScrollPosition !== undefined && action.preserveScrollPosition !== undefined && action.resetScrollPosition === action.preserveScrollPosition) issue("resetScrollPosition противоречит preserveScrollPosition");
+      if (action.navigation !== "NAVIGATE" && action.resetScrollPosition !== undefined) issue("resetScrollPosition применяется только к NAVIGATE");
       if (action.navigation !== "NAVIGATE" && action.preserveScrollPosition !== undefined) issue("preserveScrollPosition применяется только к NAVIGATE");
     }
   });

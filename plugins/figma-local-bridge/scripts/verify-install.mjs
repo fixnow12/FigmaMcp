@@ -35,7 +35,7 @@ if (opencode) {
 // Codex otherwise inherits the task directory, not the installed plugin directory.
 if (!opencode) assert.equal(config.cwd, '.', 'MCP должен запускаться из корня установленного плагина');
 const serverCwd = resolve(dirname(configPath), config.cwd);
-const expectedTools = ['activate_page', 'assemble_library_template', 'bind_variables', 'capture_library_template', 'clone_nodes', 'export_assets', 'find_assets', 'get_file_metadata', 'get_page_settings', 'get_status', 'inspect_selection', 'move_nodes', 'patch_nodes', 'recreate_screen', 'render_screen', 'set_file_metadata', 'set_page_settings', 'set_reactions', 'set_text_links', 'use_component'];
+const expectedTools = ['activate_page', 'assemble_library_template', 'bind_variables', 'capture_library_template', 'clone_nodes', 'export_assets', 'find_assets', 'get_file_metadata', 'get_page_settings', 'get_status', 'import_variables', 'inspect_selection', 'move_nodes', 'patch_nodes', 'recreate_screen', 'render_screen', 'set_file_metadata', 'set_node_variable_modes', 'set_page_settings', 'set_reactions', 'set_text_links', 'use_component'];
 
 const transport = new StdioClientTransport({
   // Do not substitute process.execPath: that hides a broken command/PATH.
@@ -72,6 +72,17 @@ try {
     }
     checkArrays(tool.inputSchema);
   }
+  const renderNode = response.tools.find(tool => tool.name === 'render_screen').inputSchema.properties.spec.properties.nodes.items.properties;
+  const modes = response.tools.find(tool => tool.name === 'set_node_variable_modes');
+  assert.equal(modes.inputSchema.properties.bindings.maxItems, 40);
+  assert.ok(modes.inputSchema.required.includes('fileKey'));
+  const bindings = response.tools.find(tool => tool.name === 'bind_variables').inputSchema.properties.bindings.items.properties;
+  const patch = response.tools.find(tool => tool.name === 'patch_nodes').inputSchema.properties.patches.items.properties.set.properties;
+  for (const field of ['listOptions', 'listSpacing', 'indentation', 'vectorPaths', 'booleanOperation', 'pointCount']) assert.ok(renderNode[field] && patch[field], `Устаревшая fidelity-v2 схема: ${field}`);
+  assert.ok(renderNode.effects.items.properties.type.enum.includes('GLASS'), 'Устаревшая схема эффектов: нет GLASS');
+  for (const field of ['fontFamily', 'fontWeight', 'lineHeight', 'fills']) assert.ok(bindings.field.enum.includes(field), `Нет привязки ${field}`);
+  assert.equal(patch.scaleFactor.type, 'number');
+  assert.equal(bindings.start.type, 'integer'); assert.equal(bindings.end.type, 'integer');
   const report = { pluginRoot, configPath, command: config.command, tools: actualTools,
     inspectFields: Object.keys(inspect), liveChecked: false,
     note: 'Проверен новый MCP-процесс из конфигурации. Каталог уже открытого чата может быть устаревшим: переподключите MCP и откройте новый чат.' };
