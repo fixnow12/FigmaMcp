@@ -1,6 +1,6 @@
-# FigmaMcp
+# figma-local
 
-**Редактируйте макеты Figma через чат с Codex или OpenCode.**
+**figma-local — локальное подключение Figma Desktop к Codex и OpenCode.**
 
 Вы описываете задачу обычными словами, а ассистент читает открытый макет и меняет нужные слои: тексты, размеры, отступы, цвета и компоненты.
 
@@ -40,8 +40,8 @@
 Откройте Терминал на macOS или PowerShell на Windows и выполните:
 
 ```bash
-git clone https://github.com/fixnow12/FigmaMcp.git
-cd FigmaMcp
+git clone https://github.com/fixnow12/figma-local.git
+cd figma-local
 ```
 
 ### 2. Запустите установщик
@@ -73,7 +73,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
 
 ### 4. Откройте ассистента
 
-**Codex:** перезапустите приложение, откройте папку `FigmaMcp` и создайте новую задачу.
+**Codex:** перезапустите приложение, откройте папку `figma-local` и создайте новую задачу.
 
 <details>
 <summary>Что делать, если установщик не нашёл Codex</summary>
@@ -89,7 +89,7 @@ codex plugin add figma-local-bridge@figma-mcp
 
 </details>
 
-**OpenCode:** откройте папку `FigmaMcp` и создайте новый чат. Настройки подключения уже есть в `opencode.json`.
+**OpenCode:** откройте папку `figma-local` и создайте новый чат. Настройки подключения уже есть в `opencode.json`.
 
 ## Первый запрос
 
