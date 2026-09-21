@@ -858,16 +858,26 @@ const unread = [];
 const assets = [];
 const fidelityWarnings = [];
 const instanceReads = [];
+const siblingTopology = new Map();
 
 function inspect(node, level) {
+  const parentId = node.parent?.id || null;
+  if (!siblingTopology.has(parentId)) {
+    const ids = node.parent?.children?.map(child => child.id) || [];
+    siblingTopology.set(parentId, { ids, indices: new Map(ids.map((id, index) => [id, index])) });
+  }
+  const topology = siblingTopology.get(parentId);
+  const parentChildIds = topology.ids;
+  const childIndex = topology.indices.get(node.id) ?? -1;
   if (count >= maxNodes) {
     truncated = true;
-    unread.push({ nodeId: node.id, reason: "maxNodes" });
+    unread.push({ nodeId: node.id, reason: "maxNodes", parentId, childIndex });
     return null;
   }
   count += 1;
   const item = {
     id: node.id,
+    parentId, childIndex, ...(level === 0 ? { parentChildIds } : {}),
     key: node.getPluginData?.(DATA_KEY) || null,
     name: node.name,
     type: node.type,
@@ -957,6 +967,10 @@ function inspect(node, level) {
         itemReverseZIndex: node.itemReverseZIndex,
       } : {}),
     };
+  }
+  if ("children" in node) {
+    item.childIds = node.children.map(child => child.id);
+    item.childCount = item.childIds.length;
   }
   if (level < maxDepth && "children" in node) {
     item.children = node.children.map((child) => inspect(child, level + 1)).filter(Boolean);

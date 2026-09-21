@@ -3,6 +3,14 @@ import assert from "node:assert/strict";
 import { createFigmaMock, executeGenerated } from "./helpers/figma-mock.mjs";
 import { buildReconstructionRead, compileReconstruction, buildReconstructionWrite, recreateScreen } from "../src/reconstruction.mjs";
 
+// Rebuilding adds a sibling outside the protected source subtree. Its identity
+// is pagination context, not source content; all descendant topology stays checked.
+function sourceSnapshot(read) {
+  const snapshot = structuredClone(read);
+  for (const root of snapshot.snapshot.selection) delete root.parentChildIds;
+  return JSON.stringify(snapshot);
+}
+
 function fixture() {
   const mock = createFigmaMock();
   mock.figma.createFrame = () => mock.make("FRAME", { effects: [] });
@@ -22,7 +30,7 @@ function fixture() {
 
 test("полное чтение и новая сборка сохраняют текст, шрифты, тени, цвета и исходник", async () => {
   const f = fixture();
-  const before = JSON.stringify(await executeGenerated(f.figma, buildReconstructionRead(f.root.id)));
+  const before = sourceSnapshot(await executeGenerated(f.figma, buildReconstructionRead(f.root.id)));
   const read = JSON.parse(before);
   const compiled = compileReconstruction(read, { key: "rebuilt" });
   const result = await executeGenerated(f.figma, buildReconstructionWrite(compiled, { x: 1600, y: 0 }));
@@ -37,7 +45,7 @@ test("полное чтение и новая сборка сохраняют т
   assert.deepEqual(newRoot.children[0].children[0].fills, f.text.fills);
   assert.equal(result.mapping.length, 3);
   assert.equal(result.verification.differenceCount, 0);
-  assert.equal(JSON.stringify(await executeGenerated(f.figma, buildReconstructionRead(f.root.id))), before);
+  assert.equal(sourceSnapshot(await executeGenerated(f.figma, buildReconstructionRead(f.root.id))), before);
 });
 
 test("dryRun не создаёт слоёв; недоступные шрифты и Grid блокируют запись", async () => {
@@ -325,7 +333,7 @@ test("маски внутри экземпляра сохраняют тип, к
     }, group);
     const photo = f.make("RECTANGLE", { fills: [{ type: "IMAGE", imageHash: "original", scaleMode: "FILL" }] }, group);
     f.figma.getImageByHash = hash => hash === "original" ? {} : null;
-    const before = JSON.stringify(await executeGenerated(f.figma, buildReconstructionRead(f.root.id)));
+    const before = sourceSnapshot(await executeGenerated(f.figma, buildReconstructionRead(f.root.id)));
     const count = f.nodes.size;
     const ready = await recreateScreen(f.bridge, { fileKey: "file", sourceId: f.root.id, dryRun: true });
     assert.equal(ready.structuredContent.ready, true, JSON.stringify(ready));
@@ -343,7 +351,7 @@ test("маски внутри экземпляра сохраняют тип, к
     assert.deepEqual(get(group).children, [get(mask), get(photo)]);
     assert.deepEqual(get(photo).fills, photo.fills);
     assert.equal(result.structuredContent.result.verification.differenceCount, 0);
-    assert.equal(JSON.stringify(await executeGenerated(f.figma, buildReconstructionRead(f.root.id))), before);
+    assert.equal(sourceSnapshot(await executeGenerated(f.figma, buildReconstructionRead(f.root.id))), before);
   }
 });
 

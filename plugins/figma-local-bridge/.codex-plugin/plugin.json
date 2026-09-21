@@ -1,6 +1,6 @@
 {
   "name": "figma-local-bridge",
-  "version": "0.3.0+codex.20260920-variable-import",
+  "version": "0.3.0+codex.20260920-guide-recovery",
   "description": "Local typed MCP bridge for reading and editing Figma Desktop files.",
   "author": {
     "name": "fixnow12"

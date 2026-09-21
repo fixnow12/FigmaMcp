@@ -1,3 +1,4 @@
+import {resolveResourceKeysInputSchema,resolveResourceKeysSchema,buildResolveResourceKeysCode} from './resolve-resource-keys.mjs';
 import {importVariablesInputSchema, importVariablesSchema, buildImportVariablesCode} from './import-variables.mjs';
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -116,7 +117,7 @@ server.registerTool(
     description:
       "Создаёт дизайн с нуля из JSON-спеки. spec.nodes — один плоский массив; дочерние слои ссылаются на parentKey. Внутри слоя нет nodes/children. dryRun:true проверяет свойства, раскладку и загрузку шрифтов без записи и PNG; это не визуальная проверка SVG или результата. Не переносит оформление прочитанного исходника автоматически. Для вариантов существующего экрана, добавления промо или ошибки используйте recreate_screen с sourceId и changes; для точечных правок — patch_nodes. Повторный вызов с тем же spec.key заменяет предыдущую версию после успешной сборки, сохраняя посторонние элементы секции; PNG возвращается по умолчанию. applied подтверждает запись, а не сходство с исходником.",
     inputSchema: renderScreenInputSchema,
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
   },
   async (input) => {
     try {
@@ -286,6 +287,13 @@ registerGeneratedTool('set_page_settings', {
   inputSchema: setPageSettingsInputSchema,
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
 }, setPageSettingsSchema, buildSetPageSettingsCode);
+
+registerGeneratedTool('resolve_resource_keys', {
+ title:'Проверить библиотечные ключи ресурсов',
+ description:'Только читает 1–100 точных variableIds/nodeIds текущего файла через Plugin API. Возвращает стабильные ключи переменных и COMPONENT/COMPONENT_SET; semanticKey отделён от библиотечного key. Не импортирует ресурсы и не меняет холст. Неподтверждённые ID остаются unresolved.',
+ inputSchema:resolveResourceKeysInputSchema,
+ annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true},
+},resolveResourceKeysSchema,buildResolveResourceKeysCode,{mutating:false});
 
 registerGeneratedTool('import_variables', {
   title: 'Импортировать библиотечные переменные',
