@@ -44,7 +44,11 @@ const operationPage = figma.currentPage;
 const fidelity = (${createFidelityRuntime.toString()})(figma);
 function checkOperation() {
   if (typeof executionControl !== "undefined" && executionControl.cancelled) {
-    throw new Error("Время операции истекло; дальнейшие изменения остановлены");
+    const error = new Error("Время операции истекло до изменения макета");
+    error.code = "OPERATION_CANCELLED_BEFORE_MUTATION";
+    error.operationStatus = "not_applied";
+    error.commandSent = true;
+    throw error;
   }
 }
 const readService = (${createReadService.toString()})(figma, checkOperation);
@@ -1026,6 +1030,10 @@ if (input.sourceKey || input.sourceId) {
   if (!component) throw new Error("Локальный компонент не найден: " + (input.sourceKey || input.sourceId));
 } else {
   component = await figma.importComponentByKeyAsync(input.libraryKey);
+  if (typeof executionControl !== "undefined" && executionControl.report) {
+    executionControl.report({ stage: "component-import", libraryKey: input.libraryKey, id: component?.id });
+  }
+  checkOperation();
 }
 
 if (component?.type === "COMPONENT_SET") {
@@ -1044,6 +1052,21 @@ if (!component || component.type !== "COMPONENT") {
   throw new Error("Источник должен быть COMPONENT или COMPONENT_SET");
 }
 
+if (input.dryRun) {
+  if (typeof executionControl !== "undefined" && executionControl.report) {
+    executionControl.report({ stage: "verified", id: component.id });
+  }
+  return {
+    ready: true,
+    sourceId: component.id,
+    sourceType: component.type,
+    sourceName: component.name,
+    libraryKey: input.libraryKey || component.key,
+    variantProperties: component.variantProperties,
+    componentPropertyDefinitions: component.componentPropertyDefinitions,
+  };
+}
+
 const parent = input.parentId ? await figma.getNodeByIdAsync(input.parentId) : input.parentKey ? findByKey(input.parentKey) : operationPage;
 if (!parent || !["PAGE", "FRAME", "SECTION", "COMPONENT"].includes(parent.type) || !("appendChild" in parent)) {
   throw new Error("Родитель не найден или не поддерживает дочерние узлы: " + input.parentKey);
@@ -1058,10 +1081,14 @@ const existing = findByKey(input.key);
 if (existing) throw new Error("Узел с ключом " + input.key + " уже существует");
 
 const instance = component.createInstance();
+if (typeof executionControl !== "undefined" && executionControl.report) {
+  executionControl.report({ stage: "instance-created", id: instance.id });
+}
 try {
 instance.name = input.name || component.name;
 instance.setPluginData(DATA_KEY, input.key);
 parent.appendChild(instance);
+if (typeof executionControl !== "undefined" && executionControl.report) executionControl.report({ stage: "attached", id: instance.id });
 if (input.componentProperties) instance.setProperties(input.componentProperties);
 if (input.position) {
   instance.x = input.position.x;
@@ -1071,6 +1098,7 @@ if (figma.currentPage === operationPage) {
   operationPage.selection = [instance];
   figma.viewport.scrollAndZoomIntoView([instance]);
 }
+if (typeof executionControl !== "undefined" && executionControl.report) executionControl.report({ stage: "verified", id: instance.id });
 return {
   id: instance.id,
   key: input.key,

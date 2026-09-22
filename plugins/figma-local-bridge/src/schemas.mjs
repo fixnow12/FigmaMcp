@@ -730,6 +730,7 @@ export const useComponentInputSchema = {
   position: z.object({ x: z.number(), y: z.number() }).strict().optional(),
   screenshot: z.boolean().optional(),
   screenshotScale: z.number().min(0.5).max(4).optional(),
+  dryRun: z.boolean().optional(),
   fileKey: z.string().min(1).optional().describe(fileKeyDescription),
 };
 

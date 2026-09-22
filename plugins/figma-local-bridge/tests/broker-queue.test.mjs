@@ -24,7 +24,7 @@ async function fixture(t, options = {}) {
   broker.bridge.waitForConnection = async () => {};
   broker.bridge.status = () => ({ connected: true, files: [{ fileKey: 'a' }, { fileKey: 'b' }] });
   const calls = [];
-  broker.bridge.execute = (code, { fileKey }) => new Promise((resolve, reject) => calls.push({ code, fileKey, resolve, reject }));
+  broker.bridge.execute = (code, options) => new Promise((resolve, reject) => calls.push({ code, fileKey:options.fileKey, options, resolve, reject }));
   broker.bridge.captureScreenshot = (nodeId, { fileKey }) => new Promise((resolve, reject) => calls.push({ nodeId, fileKey, resolve, reject }));
   const clients = await Promise.all([0, 1, 2].map(async () => {
     const client = new BrokerClient({ directory, ports: [broker.bridge.port], autoStart: false });
@@ -232,4 +232,67 @@ test('один status автоматически восстанавливает�
   const status = await client.status();
   assert.equal(status.port, port);
   assert.equal(status.maintenance, undefined);
+});
+
+test('late native import journal survives request timeout and blocks duplicate writes until settled', async t => {
+ const {calls,clients:[first,second],broker}=await fixture(t);
+ const socket={terminate(){},close(){},send(){},readyState:1};
+ broker.bridge.wsServer.clients.set('a',{ws:socket,fileInfo:{fileKey:'a'}});
+ broker.bridge.wsServer.socketKeys.set(socket,'a');
+ const operationId='aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa';
+ const input={fileKey:'a',operationId,variables:[{key:'a'.repeat(40),resolvedType:'FLOAT'}]};
+ const req=first.execute('import',{fileKey:'a',operation:{name:'import_variables',mutating:true,importInput:input}});
+ const rejection=assert.rejects(req,e=>e.operationId===operationId&&e.commandSent===true);
+ await until(()=>calls.length===1);
+ const journal=calls[0].options.operation.journal;
+ await assert.rejects(second.execute('duplicate',{fileKey:'a',operation:{name:'import_variables',mutating:true,importInput:input}}),e=>e.code==='OPERATION_IN_PROGRESS'&&e.operationId===operationId&&e.commandSent===false);
+ calls[0].reject(Object.assign(Error('timeout'),{code:'PLUGIN_EXECUTION_TIMEOUT',operationStatus:'unknown'}));
+ await rejection;
+ let status=await second.operationStatus({fileKey:'a',operationId});
+ assert.equal(status.operation.settled,false);assert.equal(status.operation.state,'unknown');
+ await assert.rejects(second.execute('another write',{fileKey:'a',operation:{mutating:true}}),{code:'OPERATION_IN_PROGRESS'});
+ const event={...journal,sequence:1,stage:'variable-read',key:input.variables[0].key,id:'opaque-real-id'};
+ const acknowledgements=[],reconnectedSocket={terminate(){},close(){},readyState:1,send(text){acknowledgements.push(JSON.parse(text));}};
+ broker.bridge.wsServer.socketKeys.delete(socket);
+ broker.bridge.wsServer.clients.set('a',{ws:reconnectedSocket,fileInfo:{fileKey:'a'}});
+ broker.bridge.wsServer.socketKeys.set(reconnectedSocket,'a');
+ const {resumeToken,...unproven}=event;
+ broker.bridge.wsServer.onOperationEvent(reconnectedSocket,unproven);
+ assert.equal(acknowledgements.length,0,'new socket must prove operation ownership');
+ broker.bridge.wsServer.onOperationEvent(reconnectedSocket,event);
+ assert.equal(acknowledgements[0].type,'OPERATION_JOURNAL_ACK');
+ status=await second.operationStatus({fileKey:'a',operationId});
+ assert.equal(status.operation.variables[0].id,'opaque-real-id');assert.equal(status.operation.settled,false);
+ broker.bridge.wsServer.onOperationEvent(reconnectedSocket,{...journal,sequence:2,stage:'settled',success:false});
+ assert.equal((await second.operationStatus({fileKey:'a',operationId})).operation.settled,true);
+ assert.equal(calls.length,1);
+});
+
+test('expired before native execution is terminal not_applied and cannot leave permanent import lock',async t=>{
+ const {calls,clients:[client],broker}=await fixture(t);
+ const socket={terminate(){},close(){},send(){},readyState:1};broker.bridge.wsServer.clients.set('a',{ws:socket,fileInfo:{fileKey:'a'}});broker.bridge.wsServer.socketKeys.set(socket,'a');
+ const operationId='bbbbbbbb-bbbb-4bbb-abbb-bbbbbbbbbbbb';
+ const request=client.execute('import',{fileKey:'a',operation:{name:'import_variables',mutating:true,importInput:{fileKey:'a',operationId,variables:[{key:'a'.repeat(40),resolvedType:'FLOAT'}]}}});
+ const rejection=assert.rejects(request,{operationStatus:'not_applied'});await until(()=>calls.length===1);
+ calls[0].reject(Object.assign(Error('expired before execution'),{code:'COMMAND_EXPIRED',operationStatus:'not_applied'}));await rejection;
+ const record=(await client.operationStatus({fileKey:'a',operationId})).operation;assert.equal(record.settled,true);assert.equal(record.state,'failed');
+});
+
+test('use_component receives a durable journal and late not_applied unlocks later writes',async t=>{
+ const {calls,clients:[client],broker}=await fixture(t);
+ const socket={terminate(){},close(){},send(){},readyState:1};broker.bridge.wsServer.clients.set('a',{ws:socket,fileInfo:{fileKey:'a'}});broker.bridge.wsServer.socketKeys.set(socket,'a');
+ const input={fileKey:'a',libraryKey:'button',parentKey:'demo',key:'guide/button'};
+ const request=client.execute('component',{fileKey:'a',operation:{name:'use_component',mutating:true,operationInput:input}});
+ const rejection=assert.rejects(request,e=>e.code==='PLUGIN_EXECUTION_TIMEOUT'&&e.operationId&&e.commandSent===true);
+ await until(()=>calls.length===1);
+ const journal=calls[0].options.operation.journal;
+ assert.equal(typeof journal.operationId,'string');
+ calls[0].reject(Object.assign(Error('timeout'),{code:'PLUGIN_EXECUTION_TIMEOUT',operationStatus:'unknown'}));
+ await rejection;
+ broker.bridge.wsServer.onOperationEvent(socket,{...journal,sequence:1,stage:'component-import',libraryKey:'button',id:'component-id'});
+ broker.bridge.wsServer.onOperationEvent(socket,{...journal,sequence:2,stage:'settled',success:false,operationStatus:'not_applied',code:'OPERATION_CANCELLED_BEFORE_MUTATION'});
+ const record=(await client.operationStatus({fileKey:'a',operationId:journal.operationId})).operation;
+ assert.equal(record.settled,true);assert.equal(record.operationStatus,'not_applied');assert.equal(record.code,'OPERATION_CANCELLED_BEFORE_MUTATION');
+ const next=client.execute('next',{fileKey:'a',operation:{name:'patch_nodes',mutating:true,operationInput:{fileKey:'a'}}});
+ await until(()=>calls.length===2);calls[1].resolve({});await next;
 });

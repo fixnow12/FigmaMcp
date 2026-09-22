@@ -243,3 +243,19 @@ test("use_component работает по ID и удаляет экземпля�
   assert.equal(result.sourceId, component.id);
   assert.equal(mock.nodes.get(result.id).parent, parent);
 });
+
+test("use_component dryRun импортирует и проверяет источник без создания instance", async () => {
+  const mock = createFigmaMock();
+  const component = mock.make("COMPONENT", { name: "Кнопка", key: "library-button", componentPropertyDefinitions: { State: { type: "VARIANT", defaultValue: "Default" } } }, null);
+  let imports = 0, instances = 0;
+  mock.figma.importComponentByKeyAsync = async key => { imports++; assert.equal(key, "library-button"); return component; };
+  component.createInstance = () => { instances++; return mock.make("INSTANCE", {}, null); };
+  const before = mock.page.children.length;
+  const result = await executeGenerated(mock.figma, buildUseComponentCode({ libraryKey: "library-button", key: "guide/button", dryRun: true }));
+  assert.equal(result.ready, true);
+  assert.equal(result.sourceId, component.id);
+  assert.equal(result.libraryKey, "library-button");
+  assert.equal(imports, 1);
+  assert.equal(instances, 0);
+  assert.equal(mock.page.children.length, before);
+});
