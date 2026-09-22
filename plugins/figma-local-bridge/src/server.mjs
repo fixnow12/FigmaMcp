@@ -1,3 +1,4 @@
+import {resolveVariablesInputSchema, resolveVariablesSchema, buildResolveVariablesCode} from './resolve-variables.mjs';
 import {resolveResourceKeysInputSchema,resolveResourceKeysSchema,buildResolveResourceKeysCode} from './resolve-resource-keys.mjs';
 import {importVariablesInputSchema, importVariablesSchema, buildImportVariablesCode} from './import-variables.mjs';
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -219,7 +220,7 @@ server.registerTool(
   {
     title: "Создать экземпляр компонента",
     description:
-      "Создаёт instance локального COMPONENT/COMPONENT_SET по sourceKey или sourceId либо библиотечного компонента по libraryKey. Родитель задаётся parentKey/parentId; поддержаны variant и componentProperties. При сбое настройки удаляет созданный instance.",
+      "Создаёт instance локального COMPONENT/COMPONENT_SET по sourceKey или sourceId либо библиотечного компонента по libraryKey. dryRun импортирует и проверяет источник без создания instance. Родитель задаётся parentKey/parentId; поддержаны variant и componentProperties. При сбое настройки удаляет созданный instance.",
     inputSchema: useComponentInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   },
@@ -228,7 +229,8 @@ server.registerTool(
       const parsed = useComponentSchema.parse(input);
       return await runToolOperation(bridge, parsed, buildUseComponentCode(parsed), {
         operationName: "use_component",
-        screenshotRequested: parsed.screenshot,
+        mutating: !parsed.dryRun,
+        screenshotRequested: !parsed.dryRun && parsed.screenshot,
         screenshotNode: (payload) => payload.result?.id,
       });
     } catch (error) {
@@ -294,6 +296,19 @@ registerGeneratedTool('resolve_resource_keys', {
  inputSchema:resolveResourceKeysInputSchema,
  annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true},
 },resolveResourceKeysSchema,buildResolveResourceKeysCode,{mutating:false});
+
+registerGeneratedTool('resolve_variables', {
+  title: 'Прочитать точные библиотечные переменные',
+  description: 'Читает до 100 переменных по подтверждённым ID и проверяет key, resolvedType, collectionKey и полные режимы коллекций. Не импортирует ресурсы и не меняет файл. Отсутствующие или несовпадающие ресурсы возвращает как unresolved; тайм-аут чтения остаётся ошибкой, а не доказательством отсутствия.',
+  inputSchema: resolveVariablesInputSchema,
+  annotations: {readOnlyHint:true, destructiveHint:false, idempotentHint:true},
+}, resolveVariablesSchema, buildResolveVariablesCode, {mutating:false});
+
+server.registerTool('get_operation_status', {
+ title:'Прочитать сохранённое состояние импорта', description:'Читает журнал операции без обращения к холсту. Не повторяет импорт. settled подтверждает завершение native-вызова; ID требует свежего resolve_variables.',
+ inputSchema:{fileKey:z.string().min(1),operationId:z.string().uuid()},
+ annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true},
+},async input=>{try{if(typeof bridge.operationStatus!=='function')throw Object.assign(Error('Журнал доступен только через broker'),{code:'OPERATION_JOURNAL_UNAVAILABLE',operationStatus:'not_applied',commandSent:false});return ok(await bridge.operationStatus(input));}catch(error){return fail(error);}});
 
 registerGeneratedTool('import_variables', {
   title: 'Импортировать библиотечные переменные',

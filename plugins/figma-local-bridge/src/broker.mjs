@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { OperationJournal } from './operation-journal.mjs';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { errorDetails } from './bridge-errors.mjs';
 import { FigmaBridge } from './bridge.mjs';
 import { installationDirectory, loadInstallation, identityFor } from './installation.mjs';
@@ -9,6 +10,9 @@ import { brokerRevision, runtimeInfo } from './runtime-info.mjs';
 export async function startBroker({ directory = installationDirectory(), port = 9233, idleMs = 60000, queueTimeoutMs = 5000,
   isRuntimeCurrent = () => brokerRevision() === runtimeInfo.brokerRevision } = {}) {
   const installation = await loadInstallation(directory);
+  const journal = new OperationJournal(directory);
+  const connectionIds = new WeakMap();
+  const connectionId = ws => {if(!connectionIds.has(ws)) connectionIds.set(ws,randomUUID());return connectionIds.get(ws);};
   const queues = new Map();
   const sessions = new Set();
   let idleTimer;
@@ -29,7 +33,7 @@ export async function startBroker({ directory = installationDirectory(), port = 
   }
   function status() {
     const full = bridge.status();
-    return { ...full, file: full.files.length === 1 ? full.files[0] : null };
+    return { ...full, operationJournal:true, file: full.files.length === 1 ? full.files[0] : null };
   }
   function maintenanceStatus() {
     const full = status();
@@ -111,6 +115,7 @@ export async function startBroker({ directory = installationDirectory(), port = 
           try {
             let result;
             if (message.method === 'status') result = maintenanceStatus();
+            else if (message.method === 'operationStatus') result = {operationStatus:'read', operation: journal.get(message.args?.fileKey,message.args?.operationId)};
             else if (message.method === 'executionStatus') {
               const fileKey = message.args?.fileKey;
               if (typeof fileKey !== 'string' || !status().files.some(file => file.fileKey === fileKey)) throw new Error('Указанный файл не подключён');
@@ -129,12 +134,34 @@ export async function startBroker({ directory = installationDirectory(), port = 
               if (message.method === 'execute') {
                 if (typeof args.code !== 'string' || args.code.length > 8 * 1024 * 1024) throw new Error('Неверная команда');
                 const timeout = Math.min(60000, Math.max(1000, Number(args.timeout) || 30000));
-                result = await runForFile(session, fileKey, () => bridge.execute(args.code, {
-                  timeout,
-                  fileKey,
-                  pageId: args.pageId,
-                  operation: args.operation,
-                }));
+                const pendingWrite = [...journal.records.values()].find(r=>r.fileKey===fileKey&&!r.settled);
+                if(pendingWrite && args.operation?.mutating !== false) throw Object.assign(Error('Предыдущий импорт ещё выполняется; прочитайте его журнал.'),{code:'OPERATION_IN_PROGRESS',operationStatus:'not_applied',commandSent:false,operationId:pendingWrite.operationId,stage:pendingWrite.stage});
+                result = await runForFile(session, fileKey, async () => {
+                  let record;
+                  const socket = bridge.wsServer.clients.get(fileKey)?.ws;
+                  let operation = args.operation;
+                  const pendingImport = [...journal.records.values()].find(r=>r.fileKey===fileKey&&!r.settled);
+                  if(pendingImport && operation?.mutating !== false) throw Object.assign(Error('Предыдущий импорт ещё не завершён; прочитайте журнал операции.'), {code:'OPERATION_IN_PROGRESS',operationStatus:'not_applied',commandSent:false,operationId:pendingImport.operationId,stage:pendingImport.stage});
+                  if(['import_variables','use_component'].includes(operation?.name)) {
+                    if(!socket) throw Error('Файл отключён');
+                    const input = operation.name==='import_variables'
+                      ? operation.importInput
+                      : {fileKey,name:operation.name,args:{...operation.operationInput,fileKey}};
+                    if(input?.fileKey !== fileKey || (operation.name==='import_variables'&&!Array.isArray(input.variables))) throw Error('Неверные аргументы операции');
+                    const resumeToken = randomBytes(32).toString('hex');
+                    record = journal.begin(input,connectionId(socket),resumeToken);
+                    operation = {...operation, journal:{operationId:record.operationId,argsHash:record.argsHash,fileKey,resumeToken}};
+                    journal.mark(record.operationId,{commandSent:true});
+                  }
+                  try { const value = await bridge.execute(args.code, {timeout,fileKey,pageId:args.pageId,expectedSocket:socket,operation});
+                    if(record) value.operationId=record.operationId;
+                    return value;
+                  } catch(error) {
+                    if(record) { const current=journal.get(fileKey,record.operationId); if(!current.settled) journal.mark(record.operationId,error.operationStatus==='not_applied'?{state:'failed',settled:true,operationStatus:'not_applied',code:error.code||'OPERATION_NOT_SENT'}:{state:'unknown',operationStatus:'unknown'});
+                      Object.assign(error,{operationId:record.operationId,argsHash:record.argsHash,stage:current.stage,commandSent:true,originalErrorCode:error.code||'OPERATION_UNKNOWN'}); }
+                    throw error;
+                  }
+                });
                 if (args.operation?.mutating === false) uncertainFiles.delete(fileKey);
               } else result = await runForFile(session, fileKey, () => bridge.captureScreenshot(args.nodeId, { scale: args.scale, fileKey }));
             } else throw new Error('Неизвестная операция Bridge');
@@ -168,6 +195,7 @@ export async function startBroker({ directory = installationDirectory(), port = 
     await onStop?.();
   }
   await bridge.start();
+  bridge.wsServer.onOperationEvent = (ws,event) => { if(bridge.wsServer.socketKeys.get(ws)!==event?.fileKey)return; const binding=connectionId(ws);journal.event(binding,event);if(journal.acknowledged(binding,event)&&ws.readyState===1)ws.send(JSON.stringify({type:'OPERATION_JOURNAL_ACK',data:{operationId:event.operationId,fileKey:event.fileKey,argsHash:event.argsHash,sequence:event.sequence}})); };
   scheduleIdle();
   return { bridge, stop, set onStop(callback) { onStop = callback; } };
 }

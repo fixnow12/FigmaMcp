@@ -495,7 +495,12 @@ figma.ui.onmessage = async (msg) => {
     await previousExecution;
     activeExecution = { name: msg.operation && msg.operation.name || 'unknown',
       mutating: !msg.operation || msg.operation.mutating !== false, startedAt: Date.now(), timedOut: false };
-    var executionControl = { cancelled: false };
+    var journalSequence = 0;
+    var journalMeta = msg.operation && msg.operation.journal;
+    var executionControl = { cancelled: false, report: function(event) {
+      if(!journalMeta)return;
+      figma.ui.postMessage({type:'OPERATION_JOURNAL_EVENT',data:Object.assign({},event,journalMeta,{sequence:++journalSequence})});
+    } };
     var executionTimer;
     try {
       var remainingTime = (msg.timeout || 5000) - (Date.now() - executionReceivedAt);
@@ -515,9 +520,9 @@ figma.ui.onmessage = async (msg) => {
       // AsyncFunction is restricted in Figma's plugin sandbox, but eval works
       // See: https://developers.figma.com/docs/plugins/resource-links
 
-      // Wrap user code in an async IIFE that returns a Promise
-      // This allows async/await in user code while using eval
-      var wrappedCode = "(async function() {\n" + msg.code + "\n})()";
+      // Compile an async function, then pass control explicitly. Figma sandbox
+      // eval need not preserve this handler's lexical executionControl binding.
+      var wrappedCode = "(async function(executionControl) {\n" + msg.code + "\n})";
 
       console.log('🌉 [Desktop Bridge] Wrapped code for eval');
 
@@ -529,14 +534,16 @@ figma.ui.onmessage = async (msg) => {
           activeExecution.timedOut = true;
           var timeoutError = new Error('Execution timed out after ' + timeoutMs + 'ms. Execution may still be running.');
           timeoutError.operationStatus = 'unknown';
+          timeoutError.code = 'PLUGIN_EXECUTION_TIMEOUT';
           reject(timeoutError);
         }, timeoutMs);
       });
 
       var codePromise;
       try {
-        // eval returns the Promise from the async IIFE
-        codePromise = eval(wrappedCode);
+        // Explicit parameter also preserves cancellation checks in generated code.
+        codePromise = eval(wrappedCode)(executionControl);
+        codePromise.then(function(){executionControl.report({stage:'settled',success:true});},function(error){executionControl.report({stage:'settled',success:false,code:error.code||'OPERATION_FAILED',operationStatus:error.operationStatus||'unknown'});});
       } catch (syntaxError) {
         // Log the actual syntax error message
         var syntaxErrorMsg = syntaxError && syntaxError.message ? syntaxError.message : String(syntaxError);

@@ -54,7 +54,7 @@ export async function runToolOperation(bridge, input, code, {
   try {
     const response = await bridge.runInFile(input.fileKey, async (target) => {
       targetResolved();
-      const payload = await timing.measure('execute', () => bridge.execute(code, { ...target, timeout, operation: { name: operationName, mutating } }));
+      const payload = await timing.measure('execute', () => bridge.execute(code, { ...target, timeout, operation: { name: operationName, mutating, ...(operationName === 'import_variables' ? { importInput: input } : operationName === 'use_component' ? { operationInput: input } : {}) } }));
       payload.operationStatus = mutating ? "applied" : "read";
       if (extendPayload) extendPayload(payload);
       if (!screenshotRequested) return { payload };

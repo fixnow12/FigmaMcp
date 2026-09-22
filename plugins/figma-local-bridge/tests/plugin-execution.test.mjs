@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
-import { buildInspectCode, buildPatchCode, buildRenderCode } from "../src/figma-code.mjs";
+import { buildInspectCode, buildPatchCode, buildRenderCode, buildUseComponentCode } from "../src/figma-code.mjs";
 import { buildFindAssetsCode } from "../src/asset-catalog.mjs";
 import { normalizeScreenSpec } from "../src/schemas.mjs";
 import { createFigmaMock } from "./helpers/figma-mock.mjs";
@@ -260,4 +260,70 @@ test('probe сообщает имя и возраст выполняющейся
     assert.ok(status.activeOperation.elapsedMs >= 0);
   } finally { release(); await running; }
   assert.equal((await handler.probe()).activeOperation, null);
+});
+
+test('late import journal emits ID and settled after timeout while native mutation lock stays busy', async()=>{
+ const {buildImportVariablesCode}=await import('../src/import-variables.mjs');
+ const mock=createFigmaMock();mock.figma.fileKey='target';let release;
+ mock.figma.variables.importVariableByKeyAsync=()=>new Promise(resolve=>{release=resolve;});
+ const handler=await executionHandler(mock.figma);
+ const timedOut=handler.result('import');
+ const operationId='aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa';
+ const running=handler.run('import',buildImportVariablesCode({fileKey:'target',variables:[{key:'a'.repeat(40),resolvedType:'FLOAT'}]}),5,{operation:{name:'import_variables',mutating:true,journal:{operationId,fileKey:'target',argsHash:'hash'}}});
+ assert.equal((await timedOut).code,'PLUGIN_EXECUTION_TIMEOUT');assert.equal((await handler.probe()).busy,true);
+ release({id:'opaque-late-id',key:'a'.repeat(40),resolvedType:'FLOAT'});await running;
+ const events=handler.messages.filter(m=>m.type==='OPERATION_JOURNAL_EVENT').map(m=>m.data);
+ assert.deepEqual(events.map(e=>e.stage),['native-import','variable-read','settled']);
+ assert.equal(events[1].id,'opaque-late-id');assert.equal(events[2].success,false);assert.equal((await handler.probe()).busy,false);
+});
+
+test('late component import proves not_applied and never creates an instance after timeout', async()=>{
+ const mock=createFigmaMock();mock.figma.fileKey='target';
+ const parent=mock.make('FRAME');
+ const component=mock.make('COMPONENT',{name:'Button'},null);
+ let release,instances=0;
+ component.createInstance=()=>{instances++;return mock.make('INSTANCE',{},null);};
+ mock.figma.importComponentByKeyAsync=()=>new Promise(resolve=>{release=()=>resolve(component);});
+ const handler=await executionHandler(mock.figma);
+ const timedOut=handler.result('component');
+ const running=handler.run('component',buildUseComponentCode({
+   fileKey:'target',libraryKey:'library-button',parentId:parent.id,key:'guide/button',name:'Кнопка',
+ }),5,{operation:{name:'use_component',mutating:true,journal:{operationId:'component-op',fileKey:'target',argsHash:'hash'}}});
+ const timeout=await timedOut;
+ assert.equal(timeout.code,'PLUGIN_EXECUTION_TIMEOUT');
+ assert.equal(timeout.operationStatus,'unknown');
+ assert.equal((await handler.probe()).busy,true);
+ release();await running;
+ const events=handler.messages.filter(m=>m.type==='OPERATION_JOURNAL_EVENT').map(m=>m.data);
+ assert.deepEqual(events.map(e=>e.stage),['component-import','settled']);
+ assert.equal(events.at(-1).success,false);
+ assert.equal(events.at(-1).operationStatus,'not_applied');
+ assert.equal(events.at(-1).code,'OPERATION_CANCELLED_BEFORE_MUTATION');
+ assert.equal(instances,0);
+ assert.equal(parent.children.length,0);
+ assert.equal((await handler.probe()).busy,false);
+});
+
+for(const delayed of [false,true]) test(`sandbox eval receives explicit execution control (${delayed?'late cancellation':'successful import'})`,async()=>{
+ const {buildImportVariablesCode}=await import('../src/import-variables.mjs');
+ const mock=createFigmaMock();mock.figma.fileKey='sandbox-file';
+ const variable={id:'sandbox-variable',key:'a'.repeat(40),resolvedType:'FLOAT',name:'Token',remote:true,variableCollectionId:'collection'};
+ const collection={id:'collection',key:'b'.repeat(40),name:'Collection',remote:true,modes:[{modeId:'default',name:'Default'}],defaultModeId:'default'};
+ let release,reads=0;
+ mock.figma.variables.importVariableByKeyAsync=delayed?()=>new Promise(resolve=>{release=resolve;}):async()=>variable;
+ mock.figma.variables.getVariableByIdAsync=async()=>{reads++;return variable;};
+ mock.figma.variables.getVariableCollectionByIdAsync=async()=>collection;
+ // Figma's sandbox may evaluate code without the caller's lexical environment.
+ const isolatedEval=source=>vm.runInNewContext(source,{figma:mock.figma,setTimeout,clearTimeout});
+ const handler=await executionHandler(mock.figma,{eval:isolatedEval});
+ const response=handler.result('sandbox');
+ const running=handler.run('sandbox',buildImportVariablesCode({fileKey:'sandbox-file',variables:[{key:variable.key,resolvedType:'FLOAT'}]}),delayed?5:1000,{operation:{name:'import_variables',mutating:true,journal:{operationId:'sandbox',fileKey:'sandbox-file',argsHash:'hash'}}});
+ const result=await response;
+ if(delayed){assert.equal(result.code,'PLUGIN_EXECUTION_TIMEOUT');release(variable);}
+ else assert.equal(result.success,true);
+ await running;
+ const events=handler.messages.filter(m=>m.type==='OPERATION_JOURNAL_EVENT').map(m=>m.data);
+ assert.deepEqual(events.map(e=>e.stage),delayed?['native-import','variable-read','settled']:['native-import','variable-read','collection-read','verified','settled']);
+ assert.equal(events[1].id,variable.id);assert.equal(reads,delayed?0:1);
+ assert.equal(events.at(-1).success,!delayed);
 });

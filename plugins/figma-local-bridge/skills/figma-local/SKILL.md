@@ -5,7 +5,7 @@ description: "Работа с открытым файлом Figma Desktop чер
 
 # Figma Local
 
-Используй только инструменты MCP-сервера `figma-local`: `get_status`, `inspect_selection`, `export_assets`, `patch_nodes`, `render_screen`, `recreate_screen`, `use_component`, `clone_nodes`, `move_nodes`, `find_assets`, `resolve_resource_keys`, `import_variables`, `bind_variables`, `set_text_links`, `set_reactions`, `activate_page`, `get_file_metadata`, `set_file_metadata`, `get_page_settings`, `set_page_settings`, `set_node_variable_modes`, `capture_library_template` и `assemble_library_template`.
+Используй только инструменты MCP-сервера `figma-local`: `get_status`, `get_operation_status`, `inspect_selection`, `export_assets`, `patch_nodes`, `render_screen`, `recreate_screen`, `use_component`, `clone_nodes`, `move_nodes`, `find_assets`, `resolve_resource_keys`, `import_variables`, `resolve_variables`, `bind_variables`, `set_text_links`, `set_reactions`, `activate_page`, `get_file_metadata`, `set_file_metadata`, `get_page_settings`, `set_page_settings`, `set_node_variable_modes`, `capture_library_template` и `assemble_library_template`.
 
 ## Общие правила
 
@@ -79,3 +79,7 @@ ID узла принадлежит конкретному файлу: всегд
 Нативный масштаб INSTANCE сохраняйте отдельным `patch_nodes` с абсолютным `scaleFactor` по capability `instance-scale-v1`. Bridge выполняет rescale до resize и проверяет отношение 0.01–100; изменение вложенного INSTANCE запрещено. Сначала задайте масштаб корневого экземпляра, затем отдельным пакетом проверьте/примените потомков. `inspect_selection(detail:"full")` возвращает scaleFactor.
 
 `set_node_variable_modes` задаёт режим коллекции на точных FRAME/INSTANCE: `{fileKey, bindings:[{nodeId,collectionKey,anchorVariableKey,modeName}]}` (до 40). Получи ключи из исходного чтения/каталога и работай по capability `node-variable-modes-v1`. Ответ `variableModesVerification.checks` подтверждает collectionId/modeId и truthful `mutated`. Повторное чтение `inspect_selection` проверяет `explicitVariableModes`; значения переменных и определения компонентов операция не меняет.
+
+### Журнал импорта переменных
+
+При capability `operation-journal-v1` перед импортом сохраняй UUID `operationId` и номер `attempt` вместе с исходными аргументами. После timeout не повторяй import_variables. `get_operation_status({fileKey,operationId})` читает сохранённый журнал без очереди холста; проверяй точный fileKey, argsHash, attempt и завершение операции. Поздний ID требует свежего resolve_variables перед признанием ресурса готовым. Пока native-операция не завершена, запись остаётся заблокированной. Журнал сохраняет события после исчезновения MCP-клиента и после безопасного переподключения того же плагина. Старые unknown без журнала не считаются восстановленными. В конструкторе гайдов весь этот маршрут выполняет guide.mjs recover/resume; не создавай циклы ожидания в чате.

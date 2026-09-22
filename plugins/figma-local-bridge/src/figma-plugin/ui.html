@@ -518,6 +518,43 @@
 
   <!-- LOCAL_SECURE_BOOTSTRAP -->
   <script>
+    // OPERATION_JOURNAL_RELAY_START
+  (function () {
+    var operations = new Map();
+    function authenticatedSockets() {
+      return (window.__wsGetActiveConnections ? window.__wsGetActiveConnections() : [])
+        .filter(function(c){return c.authenticated && c.ws && c.ws.readyState === 1;}).map(function(c){return c.ws;});
+    }
+    window.__journalRegister = function(meta, socket) {
+      if (!operations.has(meta.operationId)) operations.set(meta.operationId, {meta:meta,socket:socket,events:new Map(),settledSequence:null});
+    };
+    window.__journalFlush = function(preferred) {
+      operations.forEach(function(op) {
+        var candidates = preferred ? [preferred] : authenticatedSockets();
+        var socket = candidates.find(function(ws){return ws.readyState===1 && ws.url===op.socket.url;});
+        if (!socket) return;
+        Array.from(op.events.keys()).sort(function(a,b){return a-b;}).forEach(function(seq) {
+          try {socket.send(JSON.stringify({type:'OPERATION_JOURNAL_EVENT',data:op.events.get(seq)}));} catch (_) { /* Keep until persisted ACK. */ }
+        });
+      });
+    };
+    window.__journalEvent = function(event) {
+      var op=operations.get(event.operationId);
+      if(!op || op.meta.fileKey!==event.fileKey || op.meta.argsHash!==event.argsHash || op.meta.resumeToken!==event.resumeToken)return;
+      op.events.set(event.sequence,event);
+      if(event.stage==='settled')op.settledSequence=event.sequence;
+      window.__journalFlush();
+    };
+    window.__journalAck = function(ack) {
+      var op=operations.get(ack.operationId);
+      if(!op || op.meta.fileKey!==ack.fileKey || op.meta.argsHash!==ack.argsHash)return;
+      op.events.delete(ack.sequence);
+      if(op.settledSequence===ack.sequence)op.settledAcknowledged=true;
+      if(op.settledAcknowledged && op.events.size===0)operations.delete(ack.operationId);
+    };
+    setInterval(function(){window.__journalFlush();},1000);
+  })();
+    // OPERATION_JOURNAL_RELAY_END
     // ============================================================================
     // GLOBAL STATE — backing store for the in-iframe WebSocket bridge client
     // ============================================================================
@@ -567,7 +604,7 @@
         text = 'Отключено — доступ AI закрыт';
       } else if (live >= 1) {
         dotClass = 'active';
-        text = 'Подключено — AI может работать с файлом';
+        text = 'Подключено — ' + (typeof activeOperations !== 'undefined' && activeOperations && activeOperations.size ? 'занят' : typeof lastOperation !== 'undefined' && lastOperation && lastOperation.state === 'unknown' ? 'результат неизвестен' : 'готов');
       } else if (pendingLocal >= 1) {
         dotClass = 'loading';
         text = 'Проверяем защищённое подключение…';
@@ -1518,6 +1555,7 @@
             updateCompatState();
             updateLocalPairingUI();
             initializeConnection(activeWs, port);
+            window.__journalFlush(activeWs);
           },
           onMessage: handleApplicationMessage,
           onError: function() {
@@ -1536,6 +1574,7 @@
           try {
             if (!isAuthenticatedConnection(conn)) return;
 
+            if (message.type === 'OPERATION_JOURNAL_ACK') { window.__journalAck(message.data); return; }
             if (message.type === 'PLUGIN_UPDATE_AVAILABLE') {
               if (typeof showUpdateBanner === 'function') showUpdateBanner();
               return;
@@ -1570,6 +1609,7 @@
               .then(function() {
                 checkDeadline();
                 var params = message.params || {};
+                if(params.operation && params.operation.journal) window.__journalRegister(params.operation.journal,activeWs);
                 if (typeof message.expiresAt === 'number') params.expiresAt = message.expiresAt;
                 return handler(params);
               })
@@ -2020,6 +2060,7 @@
 
     // Explicit MCP metadata: never infer a user-facing action from generated code.
     var OPERATION_LABELS = {
+      import_variables: 'Импорт переменных', resolve_variables: 'Проверка переменных',
       render_screen: 'Создание экрана', patch_nodes: 'Изменение слоёв',
       inspect_selection: 'Чтение макета', use_component: 'Вставка экземпляра', recreate_screen: 'Воссоздание экрана',
       clone_nodes: 'Копирование элементов', move_nodes: 'Перенос элементов',
@@ -2060,6 +2101,7 @@
       summary.textContent = item ? item.title + ' — ' + OPERATION_STATES[item.state] : 'Ожидание команды';
       summary.dataset.state = item ? item.state : 'idle';
       summary.title = item ? item.context : '';
+      deriveAndRenderStatus();
       context.textContent = currentFileLabel || (item ? item.context : '');
       context.title = context.textContent;
       var queued = active.filter(function(entry) { return entry.state === 'queued'; }).length;
@@ -2318,6 +2360,9 @@
           break;
 
         // Variable operations
+        case 'OPERATION_JOURNAL_EVENT':
+          window.__journalEvent(msg.data);
+          break;
         case 'EXECUTE_CODE_RESULT':
           handleResult('EXECUTE_CODE', 'result');
           break;
@@ -2594,5 +2639,8 @@
       }
     };
   </script>
+
+
+
 </body>
 </html>

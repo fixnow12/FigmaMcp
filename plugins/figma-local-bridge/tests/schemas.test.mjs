@@ -171,4 +171,5 @@ test("use_component принимает ровно один источник", ()
     false,
   );
   assert.equal(useComponentSchema.safeParse({ key: "button-instance" }).success, false);
+  assert.equal(useComponentSchema.safeParse({ libraryKey: "library", key: "button-instance", dryRun: true }).data.dryRun, true);
 });

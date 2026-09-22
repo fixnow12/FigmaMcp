@@ -20,7 +20,7 @@ test('полный установленный UI: auto auth → FILE_INFO → к
   // Only the test listener port differs; execute every generated script verbatim.
   html = html.replace('var WS_PORT_RANGE_START = 9233;', `var WS_PORT_RANGE_START = ${broker.bridge.port};`).replace('var WS_PORT_RANGE_END = 9233;', `var WS_PORT_RANGE_END = ${broker.bridge.port};`);
   const timers = new Set(), sockets = [], commands = [], errors = [];
-  let busy = false, responsive = true, executionFailure;
+  let busy = false, responsive = true, executionFailure, journalCommand;
   let clockOffset = 0;
   const context = {
     TextEncoder, TextDecoder, Uint8Array, DataView, AbortSignal,
@@ -39,6 +39,7 @@ test('полный установленный UI: auto auth → FILE_INFO → к
       if (message.type === 'RESIZE_UI') return;
       commands.push(message.type);
       if (message.type === 'GET_EXECUTION_STATUS' && !responsive) return;
+      if (message.type === 'EXECUTE_CODE' && message.operation?.journal) {journalCommand=message;return;}
       const response = { requestId: message.requestId, type: `${message.type}_RESULT`, success: true };
       if (message.type === 'GET_FILE_INFO') response.fileInfo = { fileKey: 'ui-file', fileName: 'Runtime test', pluginVersion: '0.3.0' };
       else if (message.type === 'GET_EXECUTION_STATUS') Object.assign(response, { busy, pendingExecutions: busy ? 1 : 0,
@@ -111,11 +112,29 @@ test('полный установленный UI: auto auth → FILE_INFO → к
     return true;
   });
   executionFailure = undefined;
+  const operationId='dddddddd-dddd-4ddd-addd-dddddddddddd';
+  const pendingImport=client.execute('import pending',{fileKey:'ui-file',operation:{name:'import_variables',mutating:true,importInput:{fileKey:'ui-file',operationId,variables:[{key:'a'.repeat(40),resolvedType:'FLOAT'}]}}});
+  const disconnectedImport=assert.rejects(pendingImport);
+  await waitFor(()=>journalCommand);
   context.__wsDisconnectAll();
+  await disconnectedImport;
+  for(const event of [{stage:'variable-read',sequence:1,key:'a'.repeat(40),id:'late-native-id'},{stage:'settled',sequence:2,success:false}]) {
+    context.onmessage({data:{pluginMessage:{type:'OPERATION_JOURNAL_EVENT',data:{...journalCommand.operation.journal,...event}}}});
+  }
+
   await waitFor(() => !broker.bridge.status().connected);
   assert.equal(context.__wsIsPaused(), true);
   context.__wsManualScan();
   await waitFor(() => broker.bridge.status().connected);
   assert.equal(context.__wsGetAuthenticatedCount(), 1);
+  let recovered;
+  for(let attempt=0;attempt<30;attempt++) {
+    recovered=(await client.operationStatus({fileKey:'ui-file',operationId})).operation;
+    if(recovered.settled)break;
+    await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  assert.equal(recovered.settled,true);
+  assert.equal(recovered.variables[0].id,'late-native-id');
+  assert.equal(commands.filter(type=>type==='EXECUTE_CODE').length,4,'reconnect never repeats import');
   assert.equal(errors.length, 0);
 });

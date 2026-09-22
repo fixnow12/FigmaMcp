@@ -123,13 +123,14 @@ export class BrokerClient {
     const { secure } = await this.connect();
     const id = randomUUID();
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(interruptedRequest('Истекло время ожидания Bridge', 'BRIDGE_TIMEOUT', method, args)); }, ['status', 'executionStatus'].includes(method) ? 5000 : 90000);
+      const timer = setTimeout(() => { this.pending.delete(id); reject(interruptedRequest('Истекло время ожидания Bridge', 'BRIDGE_TIMEOUT', method, args)); }, ['status', 'executionStatus', 'operationStatus'].includes(method) ? 5000 : 90000);
       this.pending.set(id, { resolve, reject, timer, method, args });
       try { secure.send({ id, method, args }); } catch (error) { clearTimeout(timer); this.pending.delete(id); reject(interruptedRequest(error.message, 'BRIDGE_SEND_FAILED', method, args)); }
     });
   }
   execute(code, options = {}) { return this.call('execute', { ...options, code }); }
   captureScreenshot(nodeId, options = {}) { return this.call('captureScreenshot', { ...options, nodeId }); }
+  operationStatus(input) { return this.call('operationStatus', input); }
   executionStatus(fileKey) { return this.call('executionStatus', { fileKey }); }
   async status({ fileKey } = {}) {
     let status = await this.readStatus();

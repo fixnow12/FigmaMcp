@@ -54,3 +54,11 @@ test('partial evidence survives the existing error wire fields',async()=>{
  const {errorDetails,remoteError}=await import('../src/bridge-errors.mjs');const {toolFailure}=await import('../src/tool-results.mjs');
  const m=fixture();m.variable.resolvedType='FLOAT';try{await run(m);assert.fail('must fail');}catch(error){const response=toolFailure(remoteError(error.message,JSON.parse(JSON.stringify(errorDetails(error)))));assert.equal(response.isError,true);assert.equal(response.structuredContent.operationStatus,'partial');assert.equal(response.structuredContent.blockers[0].evidence.complete,false);}
 });
+test('native import ID is emitted before cancellation check and no extra read/write follows',async()=>{
+ const m=fixture(),events=[],control={cancelled:false,report:e=>events.push(e)};let reads=0;
+ m.figma.variables.importVariableByKeyAsync=async()=>{control.cancelled=true;return m.variable;};
+ m.figma.variables.getVariableByIdAsync=async()=>{reads++;return m.variable;};
+ const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+ await assert.rejects(new AsyncFunction('figma','executionControl',implementation.buildImportVariablesCode(m.input))(m.figma,control));
+ assert.deepEqual(events.map(e=>e.stage),['native-import','variable-read']);assert.equal(events[1].id,m.variable.id);assert.equal(reads,0);
+});
